@@ -1,0 +1,1055 @@
+@page "/computers"
+@attribute [Authorize]
+
+<PageTitle>Computers - Device Management</PageTitle>
+
+@* Error alert for API failures *@
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null" aria-label="Dismiss"></button>
+    </div>
+}
+
+@* Toast notification *@
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="position-fixed top-0 end-0 p-3 toast-z">
+        <div class="toast show @toastClass text-white">
+            <div class="toast-body d-flex align-items-center justify-content-between">
+                <span>@toastMessage</span>
+                <button type="button" class="btn-close btn-close-white ms-2" @onclick="() => toastMessage = null" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <h1>Computers</h1>
+            @if (hasPendingUpdates)
+            {
+                <span class="badge bg-warning text-dark">
+                    <i class="bi bi-arrow-repeat me-1"></i>@pendingUpdateCount update(s) pending
+                    @if (nextRefreshIn > 0)
+                    {
+                        <small class="ms-1">(refresh in @nextRefreshIn s)</small>
+                    }
+                </span>
+            }
+            @if (lastRefresh.HasValue)
+            {
+                <small class="text-muted">
+                    <i class="bi bi-clock me-1"></i>Updated @GetTimeAgo(lastRefresh.Value)
+                    <button class="btn btn-link btn-sm p-0 ms-1" @onclick="ManualRefresh" disabled="@isRefreshing" aria-label="Refresh computer list">
+                        <i class="bi bi-arrow-clockwise @(isRefreshing ? "spin" : "")"></i>
+                    </button>
+                </small>
+            }
+        </div>
+        <div class="d-flex gap-2">
+            <div class="btn-group">
+                <button class="btn btn-outline-secondary" @onclick="DownloadExportCsv" title="Export all computers to CSV">
+                    <i class="bi bi-download me-1"></i>Export CSV
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="ShowImportModal" title="Import computers from CSV">
+                    <i class="bi bi-upload me-1"></i>Import CSV
+                </button>
+            </div>
+            <button class="btn btn-primary" @onclick="ShowAddModal">
+                <i class="bi bi-plus-lg me-2"></i>Add Computer
+            </button>
+        </div>
+    </div>
+
+    @* Search & Filter Toolbar *@
+    @if (!isLoading)
+    {
+        <div class="card mb-3">
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    @* Text search *@
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Search</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" placeholder="Hostname, service tag, IP, model..." 
+                                   value="@_searchInputText" @oninput="OnSearchInput" />
+                            @if (!string.IsNullOrEmpty(_searchInputText))
+                            {
+                                <button class="btn btn-outline-secondary" type="button" @onclick="ClearSearch" aria-label="Clear search">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    @* Status filter *@
+                    <div class="col-md">
+                        <label class="form-label small mb-1">Status</label>
+                        <select class="form-select form-select-sm" @bind="filterStatus" @bind:after="OnFilterChanged">
+                            <option value="">All Statuses</option>
+                            @foreach (var s in _computerStatuses)
+                            {
+                                <option value="@s.Name">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+                    @* Type filter *@
+                    <div class="col-md">
+                        <label class="form-label small mb-1">Type</label>
+                        <select class="form-select form-select-sm" @bind="filterType" @bind:after="OnFilterChanged">
+                            <option value="">All Types</option>
+                            @foreach (var t in _computerTypes)
+                            {
+                                <option value="@t.Name">@t.Name</option>
+                            }
+                        </select>
+                    </div>
+                    @* Location filter *@
+                    <div class="col-md">
+                        <label class="form-label small mb-1">Location</label>
+                        <select class="form-select form-select-sm" @bind="filterLocation" @bind:after="OnFilterChanged">
+                            <option value="">All Locations</option>
+                            @foreach (var l in _locations)
+                            {
+                                <option value="@l.Name">@l.Name</option>
+                            }
+                        </select>
+                    </div>
+                    @* Department filter *@
+                    <div class="col-md">
+                        <label class="form-label small mb-1">Department</label>
+                        <select class="form-select form-select-sm" @bind="filterDepartment" @bind:after="OnFilterChanged">
+                            <option value="">All Departments</option>
+                            @foreach (var d in _departments)
+                            {
+                                <option value="@d.Name">@d.Name</option>
+                            }
+                        </select>
+                    </div>
+                    @* Connection status filter *@
+                    <div class="col-md">
+                        <label class="form-label small mb-1">Connection</label>
+                        <select class="form-select form-select-sm" @bind="filterConnection" @bind:after="OnFilterChanged">
+                            <option value="">All</option>
+                            <option value="Online">Online</option>
+                            <option value="Offline">Offline</option>
+                            <option value="NoAgent">No Agent</option>
+                        </select>
+                    </div>
+                    @* Clear filters *@
+                    <div class="col-auto">
+                        @if (HasActiveFilters)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="ClearFilters" title="Clear all filters">
+                                <i class="bi bi-x-circle me-1"></i>Clear
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <small class="text-muted">
+                        @if (_totalCount > 0)
+                        {
+                            <span>Showing @((_currentPage - 1) * _pageSize + 1)–@(Math.Min(_currentPage * _pageSize, _totalCount)) of @_totalCount computers</span>
+                        }
+                        else
+                        {
+                            <span>No computers found</span>
+                        }
+                    </small>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (computers == null || !computers.Any())
+    {
+        @if (HasActiveFilters)
+        {
+            <EmptyState Icon="EmptyState.EmptyStateIcon.Computers"
+                        Title="No matching computers"
+                        Description="No computers match the current filters. Try adjusting your criteria."
+                        ActionText="Clear filters"
+                        ActionIcon="bi-funnel"
+                        ActionClicked="ClearFilters" />
+        }
+        else
+        {
+            <EmptyState Icon="EmptyState.EmptyStateIcon.Computers"
+                        Title="No computers found"
+                        Description="Add your first computer to start tracking your inventory." />
+        }
+    }
+    else
+    {
+        @* Bulk action toolbar - shown when items are selected *@
+        @if (selectedIds.Count > 0)
+        {
+            <div class="alert alert-info d-flex align-items-center justify-content-between mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <strong>@selectedIds.Count computer(s) selected (this page)</strong>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ClearSelection">
+                        <i class="bi bi-x-circle me-1"></i>Clear
+                    </button>
+                </div>
+                <div class="d-flex gap-2">
+                    <div class="input-group input-group-sm w-auto">
+                        <select class="form-select form-select-sm select-w-150" @bind="bulkStatusValue">
+                            <option value="">Set status...</option>
+                            @foreach (var s in _computerStatuses)
+                            {
+                                <option value="@s.Name">@s.Name</option>
+                            }
+                        </select>
+                        <button class="btn btn-warning btn-sm" @onclick="BulkUpdateStatus" disabled="@(string.IsNullOrEmpty(bulkStatusValue) || isBulkOperating)">
+                            <i class="bi bi-arrow-repeat me-1"></i>Apply
+                        </button>
+                    </div>
+                    <button class="btn btn-danger btn-sm" @onclick="ShowBulkDeleteConfirm" disabled="@isBulkOperating">
+                        <i class="bi bi-trash me-1"></i>Delete Selected
+                    </button>
+                </div>
+            </div>
+        }
+
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive table-scroll">
+                    <table class="table table-hover">
+                        <thead class="sticky-header">
+                            <tr>
+                                <th class="col-w-40">
+                                    <input type="checkbox" class="form-check-input" id="select-all-checkbox"
+                                           checked="@IsAllSelected()" 
+                                           @onchange="ToggleSelectAll" />
+                                    <label for="select-all-checkbox" class="visually-hidden">Select all computers</label>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("Status")'>
+                                    Status <i class="bi @GetSortIcon("Status") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("SerialNumber")'>
+                                    Service Tag <i class="bi @GetSortIcon("SerialNumber") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("Hostname")'>
+                                    Hostname <i class="bi @GetSortIcon("Hostname") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("Model")'>
+                                    Model <i class="bi @GetSortIcon("Model") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("Type")'>
+                                    Type <i class="bi @GetSortIcon("Type") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("AgentVersion")'>
+                                    Agent Ver. <i class="bi @GetSortIcon("AgentVersion") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("InventoryStatus")'>
+                                    Inventory Status <i class="bi @GetSortIcon("InventoryStatus") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("AssignedTo")'>
+                                    Assigned To <i class="bi @GetSortIcon("AssignedTo") sort-icon"></i>
+                                </th>
+                                <th class="sortable-header" @onclick='() => SortBy("LastSeen")'>
+                                    Last Seen <i class="bi @GetSortIcon("LastSeen") sort-icon"></i>
+                                </th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var computer in computers)
+                            {
+                                <tr class="@(selectedIds.Contains(computer.Id) ? "table-active" : "")">
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" id="@($"select-computer-{computer.Id}")"
+                                               checked="@selectedIds.Contains(computer.Id)" 
+                                               @onchange="() => ToggleSelection(computer.Id)" />
+                                        <label for="@($"select-computer-{computer.Id}")" class="visually-hidden">Select @(computer.Hostname ?? computer.SerialNumber)</label>
+                                    </td>
+                                    <td>
+                                        @if (computer.AgentStatus.HasAgent)
+                                        {
+                                            @if (computer.AgentStatus.IsOnline)
+                                            {
+                                                <span class="badge bg-success" title="Online - @(computer.AgentStatus.CurrentUser ?? "No user")">
+                                                    <i class="bi bi-circle-fill me-1"></i>Online
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary" title="Offline - Last seen: @(computer.AgentStatus.LastSeen?.ToString("g") ?? "Never")">
+                                                    <i class="bi bi-circle me-1"></i>Offline
+                                                </span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-dark" title="No agent installed">
+                                                <i class="bi bi-dash-circle me-1"></i>No Agent
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="d-inline-flex align-items-center gap-1">
+                                            @computer.SerialNumber
+                                            @if (!string.IsNullOrEmpty(computer.SerialNumber))
+                                            {
+                                                <button class="btn btn-link btn-sm p-0 text-muted" 
+                                                        @onclick="() => CopyToClipboard(computer.SerialNumber)" 
+                                                        title="Copy service tag"
+                                                        aria-label="Copy service tag">
+                                                    <i class="bi bi-clipboard icon-xs"></i>
+                                                </button>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @computer.Hostname
+                                        @if (!string.IsNullOrEmpty(computer.IpAddress))
+                                        {
+                                            <br/><small class="text-muted">@computer.IpAddress</small>
+                                        }
+                                    </td>
+                                    <td>@computer.Manufacturer @computer.Model</td>
+                                    <td>@computer.Type</td>
+                                    <td>
+                                        @{
+                                            var display = GetDisplay(computer);
+                                            var versionStatus = display.VersionStatus;
+                                        }
+                                        @if (!computer.AgentStatus.HasAgent)
+                                        {
+                                            <span class="badge bg-light text-muted border" title="No agent installed on this computer">
+                                                <i class="bi bi-dash me-1"></i>N/A
+                                            </span>
+                                        }
+                                        else if (computer.UpdateInfo.ForceUpdate && computer.UpdateInfo.UpdateRequestedAt.HasValue)
+                                        {
+                                            var elapsed = DateTime.UtcNow - computer.UpdateInfo.UpdateRequestedAt.Value;
+                                            var isTimedOut = elapsed.TotalMinutes > 15;
+                                            var nextHeartbeat = GetNextHeartbeatTime(computer.AgentStatus.LastSeen, computer.AgentStatus.HeartbeatIntervalMinutes);
+                                            var hasProgress = computer.UpdateInfo.UpdateStatus > 0 && computer.UpdateInfo.UpdateStatus < 11;  // Active update in progress (1=Pending to 10=StartingService)
+                                            
+                                            @if (isTimedOut && !hasProgress)
+                                            {
+                                                <div class="d-flex flex-column align-items-start">
+                                                    <span class="badge bg-danger" title="Update timed out after @((int)elapsed.TotalMinutes) minutes. Requested by @(computer.UpdateInfo.UpdateRequestedBy ?? "system")">
+                                                        <i class="bi bi-x-circle me-1"></i>Update Failed
+                                                    </span>
+                                                    <small class="text-muted">v@(computer.AgentStatus.AgentVersion ?? "?")</small>
+                                                    <div class="d-flex gap-2 mt-1">
+                                                        @if (computer.UpdateInfo.HasUpdateErrorLogs)
+                                                        {
+                                                            <button class="btn btn-link btn-sm p-0 text-warning" @onclick="() => ShowErrorAnalysis(computer)" title="Analyze error logs">
+                                                                <small><i class="bi bi-search me-1"></i>Analyze</small>
+                                                            </button>
+                                                            <button class="btn btn-link btn-sm p-0 text-info" 
+                                                               @onclick="() => DownloadErrorLogs(computer)"
+                                                               title="Download error logs from the failed update">
+                                                                <small><i class="bi bi-download me-1"></i>Logs</small>
+                                                            </button>
+                                                        }
+                                                        <button class="btn btn-link btn-sm p-0 text-danger" @onclick="() => CancelUpdate(computer)" title="Clear failed update">
+                                                            <small>Clear</small>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                            else if (hasProgress)
+                                            {
+                                                <div class="d-flex flex-column align-items-start update-progress-cell">
+                                                    <div class="d-flex align-items-center mb-1">
+                                                        <span class="badge bg-primary me-2">
+                                                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                            @GetUpdateStatusLabel(computer.UpdateInfo.UpdateStatus)
+                                                        </span>
+                                                    </div>
+                                                    <div class="progress w-100 progress-thin">
+                                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                                                             role="progressbar" 
+                                                             style="width: @(computer.UpdateInfo.UpdateProgress)%"
+                                                             aria-valuenow="@computer.UpdateInfo.UpdateProgress" 
+                                                             aria-valuemin="0" 
+                                                             aria-valuemax="100">
+                                                        </div>
+                                                    </div>
+                                                    <small class="text-muted mt-1" title="@computer.UpdateInfo.UpdateStatusMessage">
+                                                        @TruncateMessage(computer.UpdateInfo.UpdateStatusMessage, 30)
+                                                    </small>
+                                                    @if (!string.IsNullOrEmpty(computer.AgentStatus.AgentVersion))
+                                                    {
+                                                        <small class="text-muted">v@(computer.AgentStatus.AgentVersion) â†’ v@(latestThinClientVersion ?? "?")</small>
+                                                    }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="d-flex flex-column align-items-start">
+                                                    <span class="badge bg-warning text-dark" title="Update requested @(computer.UpdateInfo.UpdateRequestedAt?.ToString("g") ?? "") by @(computer.UpdateInfo.UpdateRequestedBy ?? "system"). Waiting for agent to start update.">
+                                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>Pending
+                                                    </span>
+                                                    <small class="text-muted">v@(computer.AgentStatus.AgentVersion ?? "?") â†’ v@(latestThinClientVersion ?? "?")</small>
+                                                    @if (!string.IsNullOrEmpty(nextHeartbeat))
+                                                    {
+                                                        <small class="text-info" title="Agent will check for update on next heartbeat">Next: @nextHeartbeat</small>
+                                                    }
+                                                </div>
+                                            }
+                                        }
+                                        else if (computer.UpdateInfo.UpdateStatus == 11)  // Completed
+                                        {
+                                            <div class="d-flex flex-column align-items-start">
+                                                <span class="badge bg-success" title="Update completed successfully at @computer.UpdatedAt?.ToString("g")&#10;Previous: v@(computer.UpdateInfo.PreviousAgentVersion ?? "unknown")&#10;Current: v@(computer.AgentStatus.AgentVersion)">
+                                                    <i class="bi bi-check-circle me-1"></i>v@(computer.AgentStatus.AgentVersion)
+                                                </span>
+                                                @if (!string.IsNullOrEmpty(computer.UpdateInfo.PreviousAgentVersion))
+                                                {
+                                                    <small class="text-success"><i class="bi bi-arrow-up-short"></i>from v@(computer.UpdateInfo.PreviousAgentVersion)</small>
+                                                }
+                                            </div>
+                                        }
+                                        else if (computer.UpdateInfo.UpdateStatus == 99)  // Failed (99 is the enum value)
+                                        {
+                                            <div class="d-flex flex-column align-items-start">
+                                                @if (computer.UpdateInfo.ReinstallAttempted)
+                                                {
+                                                    <span class="badge bg-dark" title="Both update and reinstall have failed. Manual intervention required.">
+                                                        <i class="bi bi-exclamation-diamond me-1"></i>Override Required
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger" title="Update failed: @(computer.UpdateInfo.UpdateStatusMessage ?? "Unknown error")">
+                                                        <i class="bi bi-x-circle me-1"></i>Failed
+                                                    </span>
+                                                }
+                                                @if (!string.IsNullOrEmpty(computer.AgentStatus.AgentVersion))
+                                                {
+                                                    <small class="text-muted">v@(computer.AgentStatus.AgentVersion)</small>
+                                                }
+                                                <div class="d-flex gap-2 mt-1">
+                                                    @if (computer.UpdateInfo.HasUpdateErrorLogs)
+                                                    {
+                                                        <button class="btn btn-link btn-sm p-0 text-warning" @onclick="() => ShowErrorAnalysis(computer)" title="Analyze error logs">
+                                                            <small><i class="bi bi-search me-1"></i>Analyze</small>
+                                                        </button>
+                                                        <button class="btn btn-link btn-sm p-0 text-info" 
+                                                           @onclick="() => DownloadErrorLogs(computer)"
+                                                           title="Download error logs from the failed update">
+                                                            <small><i class="bi bi-download me-1"></i>Logs</small>
+                                                        </button>
+                                                    }
+                                                    @if (computer.UpdateInfo.ReinstallAttempted)
+                                                    {
+                                                        <button class="btn btn-link btn-sm p-0 text-warning fw-bold" @onclick="() => OverrideUpdate(computer)" title="Clear failed state — update and reinstall both failed">
+                                                            <small><i class="bi bi-shield-exclamation me-1"></i>Override</small>
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-link btn-sm p-0 text-danger" @onclick="() => CancelUpdate(computer)" title="Clear failed status">
+                                                            <small>Clear</small>
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                        else if (!string.IsNullOrEmpty(computer.AgentStatus.AgentVersion))
+                                        {
+                                            @if (versionStatus == VersionStatusType.Current)
+                                            {
+                                                <span class="badge bg-success" title="Agent is running the latest version (v@(latestThinClientVersion))&#10;@(computer.UpdateInfo.LastUpdatedAt.HasValue ? $"Last updated: {computer.UpdateInfo.LastUpdatedAt.Value:g}" : "")">
+                                                    <i class="bi bi-check-circle me-1"></i>v@(computer.AgentStatus.AgentVersion)
+                                                </span>
+                                            }
+                                            else if (versionStatus == VersionStatusType.Outdated)
+                                            {
+                                                <div class="d-flex flex-column align-items-start">
+                                                    <span class="badge bg-warning text-dark" title="Update available: v@(computer.AgentStatus.AgentVersion) â†’ v@(latestThinClientVersion)&#10;Click the update button in Actions to upgrade">
+                                                        <i class="bi bi-arrow-up-circle me-1"></i>v@(computer.AgentStatus.AgentVersion)
+                                                    </span>
+                                                    <small class="text-warning"><i class="bi bi-arrow-right-short"></i>v@(latestThinClientVersion) available</small>
+                                                </div>
+                                            }
+                                            else if (versionStatus == VersionStatusType.RecentlyUpdated)
+                                            {
+                                                <div class="d-flex flex-column align-items-start">
+                                                    <span class="badge bg-success" title="Recently updated at @computer.UpdateInfo.LastUpdatedAt?.ToString("g")&#10;Previous: v@(computer.UpdateInfo.PreviousAgentVersion ?? "unknown")">
+                                                        <i class="bi bi-check-circle-fill me-1"></i>v@(computer.AgentStatus.AgentVersion)
+                                                    </span>
+                                                    <small class="text-success"><i class="bi bi-clock-history me-1"></i>@display.LastUpdatedTimeAgo</small>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary" title="Agent version: v@(computer.AgentStatus.AgentVersion)&#10;Unable to determine if update is available&#10;Latest known: v@(latestThinClientVersion ?? "unknown")">
+                                                    <i class="bi bi-box-seam me-1"></i>v@(computer.AgentStatus.AgentVersion)
+                                                </span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary" title="Agent installed but version unknown. The agent may need to check in.">
+                                                <i class="bi bi-question-circle me-1"></i>Unknown
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @display.StatusBadgeClass">
+                                            @computer.Status
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(computer.AssignedTo))
+                                        {
+                                            <span>
+                                                <i class="bi bi-person-fill text-success me-1"></i>@computer.AssignedTo
+                                            </span>
+                                        }
+                                        else if (!string.IsNullOrEmpty(computer.AgentStatus.CurrentUser))
+                                        {
+                                            <span title="Most frequent user (auto-detected)">
+                                                <i class="bi bi-person text-muted me-1"></i>@computer.AgentStatus.CurrentUser
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (computer.AgentStatus.LastSeen.HasValue)
+                                        {
+                                            <span title="@computer.AgentStatus.LastSeen.Value.ToString("f")">
+                                                @display.LastSeenTimeAgo
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Never</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            @if (computer.AgentStatus.HasAgent && computer.AgentStatus.IsOnline)
+                                            {
+                                                @if (computer.UpdateInfo.ForceUpdate && computer.UpdateInfo.UpdateRequestedAt.HasValue)
+                                                {
+                                                    var isTimedOut = (DateTime.UtcNow - computer.UpdateInfo.UpdateRequestedAt.Value).TotalMinutes > 15;
+                                                    @if (isTimedOut)
+                                                    {
+                                                        <button class="btn btn-outline-warning" 
+                                                                @onclick="() => ForceUpdateComputer(computer)" 
+                                                                title="Retry update"
+                                                                aria-label="Retry update">
+                                                            <i class="bi bi-arrow-clockwise"></i>
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-warning" disabled title="Update in progress...">
+                                                            <span class="spinner-border spinner-border-sm"></span>
+                                                        </button>
+                                                    }
+                                                    <button class="btn btn-outline-secondary" 
+                                                            @onclick="() => CancelUpdate(computer)" 
+                                                            title="Cancel/Clear update status"
+                                                            aria-label="Cancel update">
+                                                        <i class="bi bi-x-circle"></i>
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    @if (display.IsUpdateAvailable)
+                                                    {
+                                                        <button class="btn btn-outline-info" 
+                                                                @onclick="() => RequestImmediateCheckin(computer)" 
+                                                                title="Request immediate version check-in"
+                                                                aria-label="Request version check-in">
+                                                            <i class="bi bi-arrow-down-circle"></i>
+                                                        </button>
+                                                        <button class="btn btn-outline-secondary" disabled
+                                                                title="Auto-update available - client will update on next check-in"
+                                                                aria-label="Auto-update available">
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-outline-info" 
+                                                                @onclick="() => RequestImmediateCheckin(computer)" 
+                                                                title="Request immediate version check-in"
+                                                                aria-label="Request version check-in">
+                                                            <i class="bi bi-arrow-down-circle"></i>
+                                                        </button>
+                                                        <button class="btn btn-outline-success" 
+                                                                @onclick="() => ForceUpdateComputer(computer)" 
+                                                                title="Force agent update"
+                                                                aria-label="Force agent update">
+                                                            <i class="bi bi-arrow-repeat"></i>
+                                                        </button>
+                                                    }
+                                                }
+                                            }
+                                            <button class="btn btn-outline-secondary" @onclick="() => NavigateToReports(computer.Id)" title="View reports" aria-label="View reports">
+                                                <i class="bi bi-file-earmark-text"></i>
+                                            </button>
+                                            <button class="btn btn-outline-primary" @onclick="() => EditComputer(computer)" aria-label="Edit computer">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" @onclick="() => ShowDeleteConfirm(computer.Id, computer.Hostname ?? computer.SerialNumber ?? string.Empty)" aria-label="Delete computer">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        @* Pagination Controls *@
+        @if (_totalPages > 1)
+        {
+            <nav aria-label="Computer list pagination" class="mt-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="form-label small mb-0">Per page:</label>
+                        <select class="form-select form-select-sm" style="width: auto;" value="@_pageSize" @onchange="OnPageSizeChanged">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                    </div>
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item @(_currentPage <= 1 ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(_currentPage <= 1)" aria-label="First page">
+                                <i class="bi bi-chevron-double-left"></i>
+                            </button>
+                        </li>
+                        <li class="page-item @(_currentPage <= 1 ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(_currentPage - 1)" disabled="@(_currentPage <= 1)" aria-label="Previous page">
+                                <i class="bi bi-chevron-left"></i>
+                            </button>
+                        </li>
+                        @foreach (var p in GetPageNumbers())
+                        {
+                            @if (p == -1)
+                            {
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            }
+                            else
+                            {
+                                <li class="page-item @(p == _currentPage ? "active" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(p)">@p</button>
+                                </li>
+                            }
+                        }
+                        <li class="page-item @(_currentPage >= _totalPages ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(_currentPage + 1)" disabled="@(_currentPage >= _totalPages)" aria-label="Next page">
+                                <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </li>
+                        <li class="page-item @(_currentPage >= _totalPages ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(_totalPages)" disabled="@(_currentPage >= _totalPages)" aria-label="Last page">
+                                <i class="bi bi-chevron-double-right"></i>
+                            </button>
+                        </li>
+                    </ul>
+                    <small class="text-muted">
+                        Page @_currentPage of @_totalPages (@_totalCount total)
+                    </small>
+                </div>
+            </nav>
+        }
+    }
+</div>
+
+<!-- Add/Edit Modal -->
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(isEditing ? "Edit Computer" : "Add Computer")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm @key="editingComputer" Model="editingComputer" OnValidSubmit="SaveComputer">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Service Tag *</label>
+                                <InputText @bind-Value="editingComputer!.SerialNumber" class="form-control" />
+                                <div role="alert"><ValidationMessage For="@(() => editingComputer.SerialNumber)" /></div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Hostname *</label>
+                                <InputText @bind-Value="editingComputer.Hostname" class="form-control" />
+                                <div role="alert"><ValidationMessage For="@(() => editingComputer.Hostname)" /></div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Manufacturer</label>
+                                <InputText @bind-Value="editingComputer.Manufacturer" list="manufacturer-list" class="form-control" />
+                                <datalist id="manufacturer-list">
+                                    @foreach (var m in _manufacturers)
+                                    {
+                                        <option value="@m.Name" />
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Model</label>
+                                <InputText @bind-Value="editingComputer.Model" list="model-list" class="form-control" />
+                                <datalist id="model-list">
+                                    @foreach (var m in _models)
+                                    {
+                                        <option value="@m.Name" />
+                                    }
+                                </datalist>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Type</label>
+                                <InputSelect @bind-Value="editingComputer.Type" class="form-select">
+                                    @foreach (var t in _computerTypes)
+                                    {
+                                        <option value="@t.Name">@t.Name</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Status</label>
+                                <InputSelect @bind-Value="editingComputer.Status" class="form-select">
+                                    @foreach (var s in _computerStatuses)
+                                    {
+                                        <option value="@s.Name">@s.Name</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Location</label>
+                                <InputText @bind-Value="editingComputer.Location" list="location-list" class="form-control" />
+                                <datalist id="location-list">
+                                    @foreach (var l in _locations)
+                                    {
+                                        <option value="@l.Name" />
+                                    }
+                                </datalist>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Department</label>
+                                <InputText @bind-Value="editingComputer.Department" list="department-list" class="form-control" />
+                                <datalist id="department-list">
+                                    @foreach (var d in _departments)
+                                    {
+                                        <option value="@d.Name" />
+                                    }
+                                </datalist>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Assigned To</label>
+                                <InputText @bind-Value="editingComputer.AssignedTo" class="form-control" placeholder="Enter name" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Heartbeat Interval (minutes)</label>
+                                <InputNumber @bind-Value="editingComputer.HeartbeatIntervalMinutes" class="form-control" min="1" max="1440" />
+                                <small class="text-muted">How often the agent checks in (1â€“1440 min, default: 5)</small>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Notes</label>
+                            <InputTextArea @bind-Value="editingComputer.Notes" class="form-control" rows="3" />
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                            @if (isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Save
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@* Import CSV Modal *@
+@if (showImportModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Import Computers from CSV</h5>
+                    <button type="button" class="btn-close" @onclick="CloseImportModal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Paste CSV content below</label>
+                        <textarea class="form-control font-monospace" rows="12" @bind="importCsvContent" 
+                                  placeholder="SerialNumber,Hostname,IpAddress,MacAddress,Manufacturer,Model,OperatingSystem,Processor,RamGB,StorageGB,Type,Status,Location,Department,AssignedTo,PurchaseDate,WarrantyExpiration,PurchasePrice,Notes"></textarea>
+                    </div>
+                    <div class="alert alert-secondary small">
+                        <strong>Format:</strong> CSV with header row. Required columns: SerialNumber, Hostname, Manufacturer, Model. 
+                        Use the <strong>Export CSV</strong> button to download a template with all columns.
+                    </div>
+                    @if (importResult != null)
+                    {
+                        <div class="alert @(importResult.FailureCount > 0 ? "alert-warning" : "alert-success")">
+                            <strong>Import complete:</strong> @importResult.SuccessCount succeeded, @importResult.FailureCount failed.
+                            @if (importResult.Errors.Any())
+                            {
+                                <ul class="mb-0 mt-2">
+                                    @foreach (var err in importResult.Errors.Take(20))
+                                    {
+                                        <li>@err</li>
+                                    }
+                                    @if (importResult.Errors.Count > 20)
+                                    {
+                                        <li>... and @(importResult.Errors.Count - 20) more errors</li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseImportModal">Close</button>
+                    <button type="button" class="btn btn-primary" @onclick="ExecuteImport" 
+                            disabled="@(string.IsNullOrWhiteSpace(importCsvContent) || isImporting)">
+                        @if (isImporting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        <i class="bi bi-upload me-1"></i>Import
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Bulk Delete Confirmation Modal *@
+@if (showBulkDeleteConfirm)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Bulk Delete</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showBulkDeleteConfirm = false" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@selectedIds.Count</strong> computer(s)? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showBulkDeleteConfirm = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="BulkDelete" disabled="@isBulkOperating">
+                        @if (isBulkOperating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Delete @selectedIds.Count Computer(s)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Single Delete Confirmation Modal *@
+@if (showDeleteConfirm)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Delete</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showDeleteConfirm = false" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete <strong>@deleteTargetName</strong>? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="ConfirmDeleteComputer">
+                        <i class="bi bi-trash me-1"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Error Analysis Modal *@
+@if (showErrorAnalysisModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="bi bi-bug me-2"></i>Error Analysis â€” @(errorAnalysisHostname ?? "Computer")</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showErrorAnalysisModal = false" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    @if (isLoadingAnalysis)
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2 text-muted">Analyzing error logs...</p>
+                        </div>
+                    }
+                    else if (errorAnalysis != null)
+                    {
+                        @* Summary Section *@
+                        <div class="alert @GetSeverityAlertClass(errorAnalysis.Severity) mb-3">
+                            <div class="d-flex align-items-center mb-1">
+                                <i class="bi @GetSeverityIcon(errorAnalysis.Severity) me-2"></i>
+                                <strong>@errorAnalysis.Severity Severity</strong>
+                                <span class="badge bg-secondary ms-2">@errorAnalysis.FailedPhase phase</span>
+                                @if (errorAnalysis.IsTransient)
+                                {
+                                    <span class="badge bg-info ms-2">Transient</span>
+                                }
+                            </div>
+                            <p class="mb-0">@errorAnalysis.Summary</p>
+                        </div>
+
+                        @* Identified Errors *@
+                        @if (errorAnalysis.Errors.Any())
+                        {
+                            <h6 class="mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Identified Errors (@errorAnalysis.Errors.Count)</h6>
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm table-bordered mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="col-w-100">Category</th>
+                                            <th class="col-w-80">Severity</th>
+                                            <th>Message</th>
+                                            <th class="col-w-140">Source</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var error in errorAnalysis.Errors)
+                                        {
+                                            <tr>
+                                                <td><span class="badge @GetCategoryBadgeClass(error.Category)">@error.Category</span></td>
+                                                <td><span class="badge @GetSeverityBadgeClass(error.Severity)">@error.Severity</span></td>
+                                                <td><small class="text-break">@error.Message</small></td>
+                                                <td><small class="text-muted text-break">@error.Source</small></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        @* Remediation Steps *@
+                        @if (errorAnalysis.RemediationSteps.Any())
+                        {
+                            <h6 class="mb-2"><i class="bi bi-tools me-1"></i>Remediation Steps</h6>
+                            <div class="list-group mb-3">
+                                @foreach (var step in errorAnalysis.RemediationSteps)
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div>
+                                                <div class="d-flex align-items-center mb-1">
+                                                    <span class="badge bg-primary rounded-pill me-2">@step.Order</span>
+                                                    <strong>@step.Title</strong>
+                                                </div>
+                                                <p class="mb-0 text-muted small">@step.Description</p>
+                                            </div>
+                                            @if (step.IsAutomatable && errorAnalysisComputerId.HasValue)
+                                            {
+                                                <button class="btn btn-sm btn-outline-primary ms-2 flex-shrink-0"
+                                                        @onclick="() => ExecuteRemediationAction(errorAnalysisComputerId.Value, step.AutomationAction!)"
+                                                        disabled="@isExecutingRemediation"
+                                                        title="Execute this step automatically"
+                                                        aria-label="Execute remediation step">
+                                                    @if (isExecutingRemediation)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-play-fill"></i>
+                                                    }
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @* Suggested Action *@
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <small class="text-muted">
+                                    <strong>Suggested Action:</strong>
+                                    @switch (errorAnalysis.SuggestedAction)
+                                    {
+                                        case "Retry":
+                                            <span class="text-primary">Retry the update â€” the issue appears recoverable.</span>
+                                            break;
+                                        case "Reinstall":
+                                            <span class="text-warning">Reinstall the agent â€” structural repair is needed.</span>
+                                            break;
+                                        case "ManualIntervention":
+                                            <span class="text-danger">Manual intervention required â€” review the detailed logs.</span>
+                                            break;
+                                        default:
+                                            <span>@errorAnalysis.SuggestedAction</span>
+                                            break;
+                                    }
+                                </small>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning mb-0">
+                            <i class="bi bi-info-circle me-1"></i>Unable to load error analysis. Try downloading the raw logs instead.
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (errorAnalysisComputerId.HasValue)
+                    {
+                        <button class="btn btn-outline-info" @onclick="DownloadErrorLogsFromModal">
+                            <i class="bi bi-download me-1"></i>Download Raw Logs
+                        </button>
+                    }
+                    <button type="button" class="btn btn-secondary" @onclick="() => showErrorAnalysisModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+

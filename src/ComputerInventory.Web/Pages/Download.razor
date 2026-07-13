@@ -1,0 +1,348 @@
+@page "/download"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject HttpClient Http
+
+<PageTitle>Download Agent - Device Management</PageTitle>
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="bi bi-download me-2"></i>
+                        Download Device Management Agent
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info mb-4">
+                        <i class="bi bi-info-circle me-2"></i>
+                        The Device Management Agent runs on Windows computers and automatically reports 
+                        hardware information, status, and user activity to this server.
+                    </div>
+
+                    <h5 class="mb-3">Installation Options</h5>
+
+                    <!-- PowerShell One-Liner -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-dark text-white">
+                            <i class="bi bi-terminal me-2"></i>
+                            Quick Install (PowerShell - Recommended)
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted mb-2">Generate a one-time install link, then run the command in an <strong>elevated PowerShell</strong> window:</p>
+                            
+                            @if (string.IsNullOrEmpty(_installCommand))
+                            {
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <button class="btn btn-primary" @onclick="GenerateInstallToken" disabled="@_isGenerating">
+                                        @if (_isGenerating)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                            <span>Generating...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-key me-2"></i>
+                                            <span>Generate Install Link</span>
+                                        }
+                                    </button>
+                                    <small class="text-muted">Link expires in 1 hour and can only be used once.</small>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(_tokenError))
+                                {
+                                    <div class="alert alert-danger">
+                                        <i class="bi bi-exclamation-triangle me-2"></i>@_tokenError
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="bg-dark text-light p-3 rounded position-relative">
+                                    <code id="installCommand" class="text-success">@_installCommand</code>
+                                    <button class="btn btn-sm @(copied ? "btn-success" : "btn-outline-light") position-absolute top-0 end-0 m-2" 
+                                            @onclick="CopyToClipboard">
+                                        @if (copied)
+                                        {
+                                            <i class="bi bi-check"></i> <span>Copied!</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-clipboard"></i> <span>Copy</span>
+                                        }
+                                    </button>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mt-2">
+                                    <small class="text-muted">
+                                        <i class="bi bi-clock me-1"></i>
+                                        Expires: @_tokenExpiresAt?.ToLocalTime().ToString("g") &mdash; single use only
+                                    </small>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="GenerateInstallToken" disabled="@_isGenerating">
+                                        <i class="bi bi-arrow-clockwise me-1"></i>Generate New
+                                    </button>
+                                </div>
+                            }
+
+                            <small class="text-muted mt-2 d-block">
+                                <i class="bi bi-shield-check me-1"></i>
+                                The install link contains a secure one-time token. It cannot be reused or shared.
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Manual Download -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <i class="bi bi-file-earmark-zip me-2"></i>
+                            Manual Download
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">Download the agent package and run the installer manually:</p>
+                            <ol class="mb-3">
+                                <li>Download the ZIP package using the button below</li>
+                                <li>Extract to a temporary folder</li>
+                                <li>Right-click <code>install.cmd</code> and select <strong>"Run as administrator"</strong></li>
+                                <li>The installer will configure the server URL automatically</li>
+                            </ol>
+                            <div class="alert alert-warning mb-3">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                <strong>Note:</strong> Use <code>install.cmd</code> (not install.ps1) to avoid Windows blocking downloaded scripts.
+                            </div>
+                            <a href="@GetDownloadUrl()" class="btn btn-primary" target="_blank">
+                                <i class="bi bi-download me-2"></i>
+                                Download Agent Package (ZIP)
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- System Requirements -->
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-pc-display me-2"></i>
+                            System Requirements
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled mb-0">
+                                <li><i class="bi bi-check-circle text-success me-2"></i>Windows 10/11 or Windows Server 2016+</li>
+                                <li><i class="bi bi-check-circle text-success me-2"></i>Administrator privileges for installation</li>
+                                <li><i class="bi bi-check-circle text-success me-2"></i>Network access to this server</li>
+                                <li><i class="bi bi-check-circle text-success me-2"></i>.NET Runtime included (self-contained)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Troubleshooting -->
+            <div class="card mt-4 shadow-sm">
+                <div class="card-header">
+                    <i class="bi bi-question-circle me-2"></i>
+                    Troubleshooting
+                </div>
+                <div class="card-body">
+                    <div class="accordion" id="troubleshootingAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse1">
+                                    Service won't start
+                                </button>
+                            </h2>
+                            <div id="collapse1" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                <div class="accordion-body">
+                                    <p>Check the Windows Event Viewer under Application logs for errors from "ComputerInventoryAgent".</p>
+                                    <p>Verify network connectivity to the server using:</p>
+                                    <code>Test-NetConnection -ComputerName @GetServerHost() -Port @GetServerPort()</code>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse2">
+                                    Computer not appearing in inventory
+                                </button>
+                            </h2>
+                            <div id="collapse2" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                <div class="accordion-body">
+                                    <p>Verify the service is running:</p>
+                                    <code>Get-Service "ComputerInventoryAgent"</code>
+                                    <p class="mt-2">Check the configuration in:</p>
+                                    <code>C:\Program Files\ComputerInventory\Agent\appsettings.json</code>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse3">
+                                    How to uninstall
+                                </button>
+                            </h2>
+                            <div id="collapse3" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                <div class="accordion-body">
+                                    <p>Run in an elevated PowerShell:</p>
+                                    <code>& "C:\Program Files\ComputerInventory\Agent\uninstall.ps1"</code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _serverUrl = "";
+    private bool _isConfigured = false;
+    private bool copied = false;
+    private string _installCommand = "";
+    private string _tokenError = "";
+    private bool _isGenerating = false;
+    private DateTime? _tokenExpiresAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetFromJsonAsync<ServerUrlResponse>("api/settings/server-url");
+            if (response != null)
+            {
+                _serverUrl = response.ServerUrl;
+                _isConfigured = response.IsConfigured;
+            }
+        }
+        catch
+        {
+            // Fallback: derive from HttpClient base address (the API origin)
+            var baseAddress = Http.BaseAddress;
+            if (baseAddress != null)
+            {
+                _serverUrl = baseAddress.GetLeftPart(UriPartial.Authority);
+            }
+            else
+            {
+                var uri = new Uri(Navigation.BaseUri);
+                _serverUrl = uri.GetLeftPart(UriPartial.Authority);
+            }
+        }
+    }
+
+    private record ServerUrlResponse
+    {
+        public string ServerUrl { get; init; } = "";
+        public bool IsConfigured { get; init; }
+    }
+
+    private record InstallTokenResponse
+    {
+        public string InstallUrl { get; init; } = "";
+        public DateTime ExpiresAt { get; init; }
+        public bool OneTimeUse { get; init; }
+        public string PowershellCommand { get; init; } = "";
+    }
+
+    private async Task GenerateInstallToken()
+    {
+        _isGenerating = true;
+        _tokenError = "";
+        _installCommand = "";
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.PostAsync("api/agent/install-tokens", null);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<InstallTokenResponse>();
+                if (result != null)
+                {
+                    _installCommand = result.PowershellCommand;
+                    _tokenExpiresAt = result.ExpiresAt;
+                }
+            }
+            else
+            {
+                _tokenError = "Failed to generate install token. Ensure you have Technician or Admin access.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _tokenError = $"Error generating install token: {ex.Message}";
+        }
+        finally
+        {
+            _isGenerating = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task CopyToClipboard()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("copyToClipboard", _installCommand);
+            copied = true;
+        }
+        catch (Exception)
+        {
+            copied = false;
+        }
+        StateHasChanged();
+        
+        // Reset after 2 seconds
+        await Task.Delay(2000);
+        copied = false;
+        StateHasChanged();
+    }
+    
+    private string GetServerUrl()
+    {
+        return _serverUrl;
+    }
+    
+    private string GetInternalUrl()
+    {
+        // Return internal URL for local-only use cases
+        var baseAddress = Http.BaseAddress;
+        if (baseAddress != null)
+        {
+            return baseAddress.GetLeftPart(UriPartial.Authority);
+        }
+        var uri = new Uri(Navigation.BaseUri);
+        return uri.GetLeftPart(UriPartial.Authority);
+    }
+
+    private string GetDownloadUrl()
+    {
+        return $"{GetServerUrl()}/api/agent/download";
+    }
+
+    private string GetServerHost()
+    {
+        try
+        {
+            var uri = new Uri(GetServerUrl());
+            return uri.Host;
+        }
+        catch
+        {
+            return "server";
+        }
+    }
+
+    private string GetServerPort()
+    {
+        try
+        {
+            var uri = new Uri(GetServerUrl());
+            return uri.Port.ToString();
+        }
+        catch
+        {
+            return "80";
+        }
+    }
+}

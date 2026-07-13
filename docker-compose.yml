@@ -1,0 +1,60 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: INV-MKS-Redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - inv-mks-redis-data:/data
+    networks:
+      - INV-MKS-Default
+
+  api:
+    build:
+      context: .
+      dockerfile: src/ComputerInventory.Api/Dockerfile
+    container_name: INV-MKS-API
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=redis:6379
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY}
+      - JwtSettings__Issuer=${JWT_ISSUER:-ComputerInventoryApi}
+      - JwtSettings__Audience=${JWT_AUDIENCE:-ComputerInventoryClient}
+      - JwtSettings__ExpirationInMinutes=${JWT_EXPIRATION_MINUTES:-60}
+      - AgentSettings__ApiKey=${AGENT_API_KEY}
+      - AgentSettings__ServerUrl=${AGENT_SERVER_URL:-}
+    ports:
+      - "5010:8080"
+    volumes:
+      - inv-mks-api-keys:/app/keys
+    depends_on:
+      - redis
+    networks:
+      - INV-MKS-Default
+
+  web:
+    build:
+      context: .
+      dockerfile: src/ComputerInventory.Web/Dockerfile
+    container_name: INV-MKS-Web
+    restart: unless-stopped
+    ports:
+      - "5011:8080"
+    depends_on:
+      - api
+    networks:
+      - INV-MKS-Default
+
+volumes:
+  inv-mks-redis-data:
+  inv-mks-api-keys:
+
+networks:
+  INV-MKS-Default:
+    driver: bridge

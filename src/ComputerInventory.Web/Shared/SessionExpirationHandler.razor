@@ -1,0 +1,168 @@
+@inject AuthTokenProvider TokenProvider
+@inject NavigationManager Navigation
+@inject IAuthService AuthService
+@inject HttpClient Http
+@inject IJSRuntime JS
+@implements IDisposable
+
+@* Session expiration warning modal *@
+@if (_showExpiringWarning)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="session-expiring-title" @ref="_warningModalRef">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-warning">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="session-expiring-title">
+                        <i class="bi bi-clock-history me-2"></i>Session Expiring Soon
+                    </h5>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-hourglass-split text-warning icon-lg"></i>
+                    </div>
+                    <p>Your session will expire soon.</p>
+                    <p class="text-muted">Please save your work and log in again to continue.</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button class="btn btn-warning" @onclick="NavigateToLogin">
+                        <i class="bi bi-box-arrow-in-right me-2"></i>Log In Again
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="DismissWarning">
+                        <i class="bi bi-x-lg me-2"></i>Dismiss
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Session expired modal *@
+@if (_showExpiredModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="session-expired-title" @ref="_expiredModalRef">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="session-expired-title">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Session Expired
+                    </h5>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-clock text-danger icon-lg"></i>
+                    </div>
+                    <p>Your session has expired.</p>
+                    <p class="text-muted">Please log in again to continue working.</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button class="btn btn-danger" @onclick="NavigateToLogin">
+                        <i class="bi bi-box-arrow-in-right me-2"></i>Log In
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private System.Threading.Timer? _checkTimer;
+    private bool _showExpiringWarning;
+    private bool _showExpiredModal;
+    private ElementReference _warningModalRef;
+    private ElementReference _expiredModalRef;
+    private bool _focusTrapActive;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_showExpiringWarning && !_focusTrapActive)
+        {
+            _focusTrapActive = true;
+            await JS.InvokeVoidAsync("ModalFocusTrap.activate", _warningModalRef);
+        }
+        else if (_showExpiredModal && !_focusTrapActive)
+        {
+            _focusTrapActive = true;
+            await JS.InvokeVoidAsync("ModalFocusTrap.activate", _expiredModalRef);
+        }
+        else if (!_showExpiringWarning && !_showExpiredModal && _focusTrapActive)
+        {
+            _focusTrapActive = false;
+            await JS.InvokeVoidAsync("ModalFocusTrap.deactivate");
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        TokenProvider.TokenExpired += OnTokenExpired;
+        TokenProvider.TokenExpiring += OnTokenExpiring;
+
+        // Periodically validate session with server (cookie sent automatically)
+        // and check if the token is nearing expiration.
+        _checkTimer = new System.Threading.Timer(async _ =>
+        {
+            if (!TokenProvider.HasToken) return;
+
+            await InvokeAsync(async () =>
+            {
+                // Check if the session is about to expire
+                TokenProvider.CheckExpiration();
+
+                try
+                {
+                    var response = await Http.PostAsync("api/auth/validate", null);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        OnTokenExpired();
+                    }
+                }
+                catch
+                {
+                    // Network error — don't show expired modal for transient failures
+                }
+            });
+        }, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private void OnTokenExpiring()
+    {
+        if (_showExpiredModal) return; // Don't show warning if already expired
+        _focusTrapActive = false;
+        _showExpiringWarning = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnTokenExpired()
+    {
+        _showExpiringWarning = false;
+        _focusTrapActive = false;
+        _showExpiredModal = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void DismissWarning()
+    {
+        _showExpiringWarning = false;
+        _focusTrapActive = false;
+    }
+
+    private async Task NavigateToLogin()
+    {
+        _showExpiringWarning = false;
+        _showExpiredModal = false;
+        
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login", true);
+    }
+
+    public void Dispose()
+    {
+        _checkTimer?.Dispose();
+        TokenProvider.TokenExpired -= OnTokenExpired;
+        TokenProvider.TokenExpiring -= OnTokenExpiring;
+
+        if (_focusTrapActive)
+        {
+            _ = JS.InvokeVoidAsync("ModalFocusTrap.deactivate");
+        }
+    }
+}

@@ -1,0 +1,55 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<a href="#main-content" class="skip-nav-link">Skip to main content</a>
+
+<div class="page">
+    <AuthorizeView>
+        <Authorized>
+            <SessionExpirationHandler />
+            <NavMenu IsOpen="_sidebarOpen" OnClose="CloseSidebar" />
+            <main class="main-content">
+                <TopBar OnToggleSidebar="ToggleSidebar" />
+                <div class="content-area" id="main-content" tabindex="-1">
+                    <GlobalErrorBoundary>
+                        @Body
+                    </GlobalErrorBoundary>
+                </div>
+            </main>
+        </Authorized>
+        <NotAuthorized>
+            @Body
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private bool _sidebarOpen;
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void ToggleSidebar()
+    {
+        _sidebarOpen = !_sidebarOpen;
+    }
+
+    private void CloseSidebar()
+    {
+        _sidebarOpen = false;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _sidebarOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

@@ -1,0 +1,56 @@
+<CascadingAuthenticationState>
+    <ErrorBoundary @ref="_errorBoundary">
+        <ChildContent>
+            <Router AppAssembly="@typeof(App).Assembly">
+                <Found Context="routeData">
+                    <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                        <NotAuthorized>
+                            <RedirectToLogin />
+                        </NotAuthorized>
+                        <Authorizing>
+                            <div class="d-flex justify-content-center align-items-center vh-100">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        </Authorizing>
+                    </AuthorizeRouteView>
+                    <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+                </Found>
+                <NotFound>
+                    <LayoutView Layout="@typeof(LoginLayout)">
+                        <div class="error-page d-flex flex-column justify-content-center align-items-center vh-100">
+                            <div class="text-center">
+                                <img src="images/errors/lost-travolta.gif" alt="Lost Travolta" class="error-gif mb-4" />
+                                <h1 class="display-1 text-primary fw-bold">404</h1>
+                                <h2 class="mb-3">Page Not Found</h2>
+                                <p class="text-muted mb-4">Looks like this page went on vacation and forgot to tell us!</p>
+                                <a href="/" class="btn btn-primary btn-lg">
+                                    <i class="bi bi-house-door me-2"></i>Take Me Home
+                                </a>
+                            </div>
+                        </div>
+                    </LayoutView>
+                </NotFound>
+            </Router>
+        </ChildContent>
+        <ErrorContent Context="ex">
+            <div class="d-flex flex-column justify-content-center align-items-center vh-100">
+                <div class="text-center p-4 error-boundary-content">
+                    <i class="bi bi-exclamation-triangle-fill text-warning icon-xl"></i>
+                    <h2 class="mt-3 mb-3">Something went wrong</h2>
+                    <p class="text-muted mb-4">An unexpected error occurred. Please try again.</p>
+                    <button class="btn btn-primary btn-lg" @onclick="ResetError">
+                        <i class="bi bi-arrow-clockwise me-2"></i>Try Again
+                    </button>
+                </div>
+            </div>
+        </ErrorContent>
+    </ErrorBoundary>
+</CascadingAuthenticationState>
+
+@code {
+    private ErrorBoundary? _errorBoundary;
+
+    private void ResetError() => _errorBoundary?.Recover();
+}

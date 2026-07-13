@@ -1,0 +1,126 @@
+@page "/login"
+@layout LoginLayout
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject HttpClient Http
+
+<div class="login-page d-flex justify-content-center align-items-center">
+    <div class="login-card card p-4">
+        <div class="text-center mb-4">
+            <i class="bi bi-pc-display-horizontal text-primary icon-lg"></i>
+            <h4 class="mt-2">Device Management</h4>
+            <p class="text-muted">Sign in to your account</p>
+        </div>
+        
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger" role="alert">
+                <i class="bi bi-exclamation-circle me-2"></i>@errorMessage
+            </div>
+        }
+        
+        <EditForm Model="loginModel" OnValidSubmit="HandleLogin">
+            <DataAnnotationsValidator />
+            
+            <div class="mb-3">
+                <label class="form-label">Username</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                    <InputText @bind-Value="loginModel.Username" class="form-control" placeholder="Enter username" />
+                </div>
+                <div role="alert"><ValidationMessage For="@(() => loginModel.Username)" /></div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Password</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                    <InputText @bind-Value="loginModel.Password" type="password" class="form-control" placeholder="Enter password" />
+                </div>
+                <div role="alert"><ValidationMessage For="@(() => loginModel.Password)" /></div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary w-100" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                }
+                Sign In
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private LoginModel loginModel = new();
+    private string? errorMessage;
+    private bool isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var status = await Http.GetFromJsonAsync<SetupStatus>("api/setup/status");
+            if (status is { SetupRequired: true })
+            {
+                Navigation.NavigateTo("/setup");
+            }
+        }
+        catch
+        {
+            // If status check fails, stay on login page
+        }
+    }
+
+    private class SetupStatus { public bool SetupRequired { get; set; } }
+
+    private async Task HandleLogin()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await AuthService.LoginAsync(new LoginRequest
+            {
+                Username = loginModel.Username,
+                Password = loginModel.Password
+            });
+
+            if (result.Success)
+            {
+                var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+                var returnUrl = "/";
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                var decoded = query["returnUrl"];
+                // Only allow relative URLs to prevent open-redirect attacks
+                if (!string.IsNullOrEmpty(decoded) && !decoded.StartsWith("//") && !decoded.Contains(":"))
+                {
+                    returnUrl = decoded.StartsWith('/') ? decoded : $"/{decoded}";
+                }
+                Navigation.NavigateTo(returnUrl, true);
+            }
+            else
+            {
+                errorMessage = result.Message ?? "Login failed";
+            }
+        }
+        catch (Exception)
+        {
+            errorMessage = "An error occurred. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private class LoginModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Username is required")]
+        public string Username { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Password is required")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

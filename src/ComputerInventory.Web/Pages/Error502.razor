@@ -1,0 +1,33 @@
+@page "/error/502"
+@layout LoginLayout
+
+<PageTitle>502 - Bad Gateway</PageTitle>
+
+<div class="error-page d-flex flex-column justify-content-center align-items-center vh-100">
+    <div class="text-center">
+        <img src="images/errors/confused.gif" alt="Confused" class="error-gif mb-4" />
+        <h1 class="display-1 text-orange fw-bold">502</h1>
+        <h2 class="mb-3">Bad Gateway</h2>
+        <p class="text-muted mb-4">The servers are playing telephone and got the message wrong!</p>
+        <p class="text-muted small mb-4">
+            <i class="bi bi-tag me-1"></i>Reference: <code>@_referenceId</code>
+        </p>
+        <a href="/" class="btn btn-primary btn-lg">
+            <i class="bi bi-arrow-clockwise me-2"></i>Retry
+        </a>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "ref")]
+    public string? CorrelationId { get; set; }
+
+    private string _referenceId = default!;
+
+    protected override void OnInitialized()
+    {
+        _referenceId = !string.IsNullOrWhiteSpace(CorrelationId)
+            ? CorrelationId
+            : Guid.NewGuid().ToString("N")[..12];
+    }
+}

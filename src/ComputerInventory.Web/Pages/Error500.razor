@@ -1,0 +1,33 @@
+@page "/error/500"
+@layout LoginLayout
+
+<PageTitle>500 - Server Error</PageTitle>
+
+<div class="error-page d-flex flex-column justify-content-center align-items-center vh-100">
+    <div class="text-center">
+        <img src="images/errors/fire.gif" alt="Fire" class="error-gif mb-4" />
+        <h1 class="display-1 text-danger fw-bold">500</h1>
+        <h2 class="mb-3">Internal Server Error</h2>
+        <p class="text-muted mb-4">Something exploded on our end. The hamsters running the servers need a break!</p>
+        <p class="text-muted small mb-4">
+            <i class="bi bi-tag me-1"></i>Reference: <code>@_referenceId</code>
+        </p>
+        <a href="/" class="btn btn-primary btn-lg">
+            <i class="bi bi-arrow-clockwise me-2"></i>Try Again
+        </a>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "ref")]
+    public string? CorrelationId { get; set; }
+
+    private string _referenceId = default!;
+
+    protected override void OnInitialized()
+    {
+        _referenceId = !string.IsNullOrWhiteSpace(CorrelationId)
+            ? CorrelationId
+            : Guid.NewGuid().ToString("N")[..12];
+    }
+}

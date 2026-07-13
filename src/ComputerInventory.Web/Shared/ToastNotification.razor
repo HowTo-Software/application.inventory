@@ -1,0 +1,205 @@
+@implements IDisposable
+
+<div class="toast-container position-fixed top-0 end-0 p-3 toast-z">
+    @foreach (var toast in _toasts)
+    {
+        <div class="toast show @GetToastClass(toast.Type)" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header @GetToastHeaderClass(toast.Type)">
+                <i class="bi @GetToastIcon(toast.Type) me-2"></i>
+                <strong class="me-auto">@toast.Title</strong>
+                @if (toast.Timestamp.HasValue)
+                {
+                    <small class="text-muted">@GetTimeAgo(toast.Timestamp.Value)</small>
+                }
+                <button type="button" class="btn-close @GetCloseButtonClass(toast.Type)" @onclick="() => RemoveToast(toast)" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                @toast.Message
+                @if (!string.IsNullOrEmpty(toast.CorrelationId))
+                {
+                    <br/>
+                    <small class="text-muted">Reference: @toast.CorrelationId</small>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const int MaxToasts = 5;
+    private readonly List<ToastItem> _toasts = new();
+    private static ToastNotification? _instance;
+    
+    /// <summary>
+    /// Get the singleton instance for showing toasts from services
+    /// </summary>
+    public static ToastNotification? Instance => _instance;
+
+    protected override void OnInitialized()
+    {
+        _instance = this;
+    }
+
+    /// <summary>
+    /// Show a toast notification from an ApiResult
+    /// </summary>
+    public void ShowFromApiResult<T>(ApiResult<T> result, string? successMessage = null)
+    {
+        if (result.Success && successMessage != null)
+        {
+            ShowSuccess(successMessage);
+        }
+        else if (!result.Success)
+        {
+            ShowError(result.ErrorMessage ?? "An error occurred", result.CorrelationId);
+        }
+    }
+
+    /// <summary>
+    /// Show a success toast
+    /// </summary>
+    public void ShowSuccess(string message, string? title = null)
+    {
+        AddToast(new ToastItem
+        {
+            Type = ToastType.Success,
+            Title = title ?? "Success",
+            Message = message,
+            Timestamp = DateTime.Now
+        });
+    }
+
+    /// <summary>
+    /// Show an info toast
+    /// </summary>
+    public void ShowInfo(string message, string? title = null)
+    {
+        AddToast(new ToastItem
+        {
+            Type = ToastType.Info,
+            Title = title ?? "Info",
+            Message = message,
+            Timestamp = DateTime.Now
+        });
+    }
+
+    /// <summary>
+    /// Show a warning toast
+    /// </summary>
+    public void ShowWarning(string message, string? title = null)
+    {
+        AddToast(new ToastItem
+        {
+            Type = ToastType.Warning,
+            Title = title ?? "Warning",
+            Message = message,
+            Timestamp = DateTime.Now
+        });
+    }
+
+    /// <summary>
+    /// Show an error toast
+    /// </summary>
+    public void ShowError(string message, string? correlationId = null, string? title = null)
+    {
+        AddToast(new ToastItem
+        {
+            Type = ToastType.Error,
+            Title = title ?? "Error",
+            Message = message,
+            CorrelationId = correlationId,
+            Timestamp = DateTime.Now
+        });
+    }
+
+    private void AddToast(ToastItem toast)
+    {
+        while (_toasts.Count >= MaxToasts)
+        {
+            _toasts.RemoveAt(0);
+        }
+        _toasts.Add(toast);
+        StateHasChanged();
+
+        // Auto-remove after delay (longer for errors)
+        var delay = toast.Type == ToastType.Error ? 8000 : 5000;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(delay);
+            await InvokeAsync(() =>
+            {
+                RemoveToast(toast);
+            });
+        });
+    }
+
+    private void RemoveToast(ToastItem toast)
+    {
+        _toasts.Remove(toast);
+        StateHasChanged();
+    }
+
+    private static string GetToastClass(ToastType type) => type switch
+    {
+        ToastType.Success => "border-success",
+        ToastType.Info => "border-info",
+        ToastType.Warning => "border-warning",
+        ToastType.Error => "border-danger",
+        _ => ""
+    };
+
+    private static string GetToastHeaderClass(ToastType type) => type switch
+    {
+        ToastType.Success => "bg-success text-white",
+        ToastType.Info => "bg-info text-white",
+        ToastType.Warning => "bg-warning text-dark",
+        ToastType.Error => "bg-danger text-white",
+        _ => ""
+    };
+
+    private static string GetCloseButtonClass(ToastType type) => type switch
+    {
+        ToastType.Warning => "",
+        _ => "btn-close-white"
+    };
+
+    private static string GetToastIcon(ToastType type) => type switch
+    {
+        ToastType.Success => "bi-check-circle-fill",
+        ToastType.Info => "bi-info-circle-fill",
+        ToastType.Warning => "bi-exclamation-triangle-fill",
+        ToastType.Error => "bi-x-circle-fill",
+        _ => "bi-bell-fill"
+    };
+
+    private static string GetTimeAgo(DateTime timestamp)
+    {
+        var diff = DateTime.Now - timestamp;
+        if (diff.TotalSeconds < 10) return "just now";
+        if (diff.TotalMinutes < 1) return $"{(int)diff.TotalSeconds}s ago";
+        return $"{(int)diff.TotalMinutes}m ago";
+    }
+
+    public void Dispose()
+    {
+        if (_instance == this)
+            _instance = null;
+    }
+
+    private class ToastItem
+    {
+        public ToastType Type { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public string? CorrelationId { get; set; }
+        public DateTime? Timestamp { get; set; }
+    }
+
+    private enum ToastType
+    {
+        Success,
+        Info,
+        Warning,
+        Error
+    }
+}

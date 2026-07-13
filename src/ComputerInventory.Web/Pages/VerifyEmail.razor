@@ -1,0 +1,143 @@
+@page "/verify-email"
+@layout LoginLayout
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<div class="login-page d-flex justify-content-center align-items-center">
+    <div class="login-card card p-4">
+        <div class="text-center mb-4">
+            <i class="bi bi-envelope-check text-primary icon-lg"></i>
+            <h4 class="mt-2">Email Verification</h4>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Verifying...</span>
+                </div>
+                <p class="text-muted mt-2">Verifying your email address...</p>
+            </div>
+        }
+        else if (success)
+        {
+            <div class="alert alert-success" role="alert">
+                <i class="bi bi-check-circle me-2"></i>@message
+            </div>
+            <a href="/login" class="btn btn-primary w-100">
+                <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+            </a>
+        }
+        else
+        {
+            <div class="alert alert-danger" role="alert">
+                <i class="bi bi-exclamation-circle me-2"></i>@message
+            </div>
+
+            @if (showResend)
+            {
+                <div class="mt-3">
+                    <p class="text-muted text-center">Need a new verification link?</p>
+                    <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                        <input type="email" class="form-control" @bind="resendEmail" placeholder="Enter your email" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(resendMessage))
+                    {
+                        <div class="alert alert-info mb-3" role="alert">
+                            <i class="bi bi-info-circle me-2"></i>@resendMessage
+                        </div>
+                    }
+
+                    <button class="btn btn-outline-primary w-100" @onclick="ResendVerification" disabled="@isResending">
+                        @if (isResending)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        <i class="bi bi-arrow-clockwise me-2"></i>Resend Verification Email
+                    </button>
+                </div>
+            }
+
+            <a href="/login" class="btn btn-link w-100 mt-3">Back to Sign In</a>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool success;
+    private bool showResend;
+    private string message = string.Empty;
+    private string resendEmail = string.Empty;
+    private string? resendMessage;
+    private bool isResending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var token = query["token"];
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            isLoading = false;
+            message = "No verification token provided.";
+            showResend = true;
+            return;
+        }
+
+        try
+        {
+            var response = await Http.GetAsync($"api/auth/verify-email?token={Uri.EscapeDataString(token)}");
+            var result = await response.Content.ReadFromJsonAsync<VerifyResult>();
+
+            success = result?.Success ?? false;
+            message = result?.Message ?? "Verification failed.";
+            showResend = !success;
+        }
+        catch
+        {
+            message = "An error occurred during verification. Please try again.";
+            showResend = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ResendVerification()
+    {
+        if (string.IsNullOrWhiteSpace(resendEmail))
+        {
+            resendMessage = "Please enter your email address.";
+            return;
+        }
+
+        isResending = true;
+        resendMessage = null;
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/auth/resend-verification", new { Email = resendEmail });
+            var result = await response.Content.ReadFromJsonAsync<VerifyResult>();
+            resendMessage = result?.Message ?? "Request sent.";
+        }
+        catch
+        {
+            resendMessage = "An error occurred. Please try again.";
+        }
+        finally
+        {
+            isResending = false;
+        }
+    }
+
+    private class VerifyResult
+    {
+        public bool Success { get; set; }
+        public string? Message { get; set; }
+    }
+}

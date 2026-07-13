@@ -1,0 +1,179 @@
+@page "/"
+@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject IComputerService ComputerService
+
+<PageTitle>Dashboard - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <h1 class="mb-4">Dashboard</h1>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            @errorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+    
+    <div class="row">
+        <div class="col-md-3 mb-4">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Total Computers</h6>
+                            @if (_isLoading)
+                            {
+                                <h2 class="card-title mb-0"><span class="placeholder col-4"></span></h2>
+                            }
+                            else
+                            {
+                                <h2 class="card-title mb-0">@totalComputers</h2>
+                            }
+                        </div>
+                        <i class="bi bi-pc-display fs-1"></i>
+                    </div>
+                </div>
+                <div class="card-footer bg-primary border-0">
+                    <a href="/computers" class="text-white text-decoration-none">
+                        View All <i class="bi bi-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-4">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Unassigned</h6>
+                            @if (_isLoading)
+                            {
+                                <h2 class="card-title mb-0"><span class="placeholder col-4"></span></h2>
+                            }
+                            else
+                            {
+                                <h2 class="card-title mb-0">@availableComputers</h2>
+                            }
+                        </div>
+                        <i class="bi bi-check-circle fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-4">
+            <div class="card bg-warning text-dark h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Assigned</h6>
+                            @if (_isLoading)
+                            {
+                                <h2 class="card-title mb-0"><span class="placeholder col-4"></span></h2>
+                            }
+                            else
+                            {
+                                <h2 class="card-title mb-0">@assignedComputers</h2>
+                            }
+                        </div>
+                        <i class="bi bi-person-check fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-4">
+            <div class="card bg-danger text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">In Maintenance</h6>
+                            @if (_isLoading)
+                            {
+                                <h2 class="card-title mb-0"><span class="placeholder col-4"></span></h2>
+                            }
+                            else
+                            {
+                                <h2 class="card-title mb-0">@maintenanceComputers</h2>
+                            }
+                        </div>
+                        <i class="bi bi-tools fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex gap-3">
+                        <a href="/computers" class="btn btn-primary">
+                            <i class="bi bi-pc-display me-2"></i>Manage Computers
+                        </a>
+                        <a href="/maintenance" class="btn btn-secondary">
+                            <i class="bi bi-tools me-2"></i>Maintenance Records
+                        </a>
+                        <AuthorizeView Roles="Admin">
+                            <a href="/users" class="btn btn-outline-primary">
+                                <i class="bi bi-people me-2"></i>Manage Users
+                            </a>
+                        </AuthorizeView>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private int totalComputers = 0;
+    private int availableComputers = 0;
+    private int assignedComputers = 0;
+    private int maintenanceComputers = 0;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatsAsync();
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            var result = await ComputerService.GetStatsAsync();
+            
+            if (result.Success && result.Data != null)
+            {
+                totalComputers = result.Data.TotalComputers;
+                
+                // Get counts from StatusCounts dictionary
+                result.Data.StatusCounts.TryGetValue("Unassigned", out availableComputers);
+                result.Data.StatusCounts.TryGetValue("Assigned", out assignedComputers);
+                result.Data.StatusCounts.TryGetValue("InMaintenance", out maintenanceComputers);
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage ?? "Failed to load dashboard statistics";
+                Console.WriteLine($"Error loading dashboard stats: {errorMessage}");
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+}

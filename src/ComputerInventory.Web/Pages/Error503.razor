@@ -1,0 +1,33 @@
+@page "/error/503"
+@layout LoginLayout
+
+<PageTitle>503 - Service Unavailable</PageTitle>
+
+<div class="error-page d-flex flex-column justify-content-center align-items-center vh-100">
+    <div class="text-center">
+        <img src="images/errors/sleeping.gif" alt="Sleeping" class="error-gif mb-4" />
+        <h1 class="display-1 text-secondary fw-bold">503</h1>
+        <h2 class="mb-3">Service Unavailable</h2>
+        <p class="text-muted mb-4">The server is taking a power nap. Please try again in a moment!</p>
+        <p class="text-muted small mb-4">
+            <i class="bi bi-tag me-1"></i>Reference: <code>@_referenceId</code>
+        </p>
+        <a href="/" class="btn btn-secondary btn-lg">
+            <i class="bi bi-clock me-2"></i>Wait and Retry
+        </a>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "ref")]
+    public string? CorrelationId { get; set; }
+
+    private string _referenceId = default!;
+
+    protected override void OnInitialized()
+    {
+        _referenceId = !string.IsNullOrWhiteSpace(CorrelationId)
+            ? CorrelationId
+            : Guid.NewGuid().ToString("N")[..12];
+    }
+}

@@ -1,0 +1,45 @@
+# RustDesk Pro Server - Docker Compose
+# Deploy with: docker compose -f rustdesk-docker-compose.yml up -d
+# View logs: docker compose -f rustdesk-docker-compose.yml logs -f
+# Stop: docker compose -f rustdesk-docker-compose.yml down
+
+services:
+  hbbr:
+    image: rustdesk/rustdesk-server-pro:latest
+    container_name: hbbr
+    command: hbbr
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /root:/root
+    environment:
+      - RUST_LOG=info
+
+  hbbs:
+    image: rustdesk/rustdesk-server-pro:latest
+    container_name: hbbs
+    # -r: relay server address
+    # -o: hostname for API (enables port 21114)
+    # Key is auto-loaded from /root/id_ed25519.pub
+    command: hbbs -r rdp.mkspvf.com:21117 -o rdp.mkspvf.com
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /root:/root
+    environment:
+      - RUST_LOG=info
+    depends_on:
+      - hbbr
+
+# Notes:
+# - Key files (id_ed25519, id_ed25519.pub) stored in /root
+# - The -o flag enables the API server on port 21114
+# - Ports used (host network mode):
+#   - 21114: API server (Pro only)
+#   - 21115: NAT test
+#   - 21116: ID/Rendezvous server (TCP/UDP)
+#   - 21117: Relay server
+#   - 21118: Websocket (hbbs)
+#   - 21119: Websocket (hbbr)
+#
+# Public Key: QmILv6rlol37MBQEl4p1RLO0SJji37iGcwW+GHjabaY=

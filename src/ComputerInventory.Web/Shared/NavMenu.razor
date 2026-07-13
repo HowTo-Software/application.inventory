@@ -1,0 +1,147 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+@if (IsOpen)
+{
+    <div class="sidebar-backdrop" @onclick="OnClose"></div>
+}
+
+<nav @ref="_navRef" class="sidebar @(IsOpen ? "show" : "")" aria-label="Main navigation">
+    <div class="p-3 border-bottom border-secondary">
+        <h5 class="text-white mb-0">
+            <i class="bi bi-pc-display me-2"></i>
+            Device
+        </h5>
+        <small class="text-muted">Management</small>
+    </div>
+    
+    <ul class="nav flex-column mt-3">
+        <li class="nav-item">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <i class="bi bi-speedometer2"></i>
+                Dashboard
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="computers">
+                <i class="bi bi-laptop"></i>
+                Computers
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="map">
+                <i class="bi bi-geo-alt"></i>
+                Map
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="maintenance">
+                <i class="bi bi-tools"></i>
+                Maintenance
+            </NavLink>
+        </li>
+        <AuthorizeView Roles="Admin">
+            <li class="nav-item">
+                <NavLink class="nav-link" href="admin">
+                    <i class="bi bi-shield-lock"></i>
+                    Admin Dashboard
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="users">
+                    <i class="bi bi-people"></i>
+                    Users
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="invite-codes">
+                    <i class="bi bi-envelope-plus"></i>
+                    Invite Codes
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="departments">
+                    <i class="bi bi-diagram-3"></i>
+                    Departments
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="locations">
+                    <i class="bi bi-geo-alt-fill"></i>
+                    Locations
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="audit-log">
+                    <i class="bi bi-journal-text"></i>
+                    Audit Log
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link" href="packages">
+                    <i class="bi bi-box-seam"></i>
+                    Packages
+                </NavLink>
+            </li>
+        </AuthorizeView>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="reports">
+                <i class="bi bi-file-earmark-bar-graph"></i>
+                Reports
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="download">
+                <i class="bi bi-download"></i>
+                Download Agent
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="versions">
+                <i class="bi bi-clock-history"></i>
+                Version History
+            </NavLink>
+        </li>
+    </ul>
+</nav>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private ElementReference _navRef;
+    private DotNetObjectReference<NavMenu>? _dotNetRef;
+    private bool _wasPreviouslyOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("NavMenuFocusTrap.init", _navRef, _dotNetRef);
+        }
+
+        if (IsOpen && !_wasPreviouslyOpen)
+        {
+            await JS.InvokeVoidAsync("NavMenuFocusTrap.activate", _navRef);
+        }
+        else if (!IsOpen && _wasPreviouslyOpen)
+        {
+            await JS.InvokeVoidAsync("NavMenuFocusTrap.deactivate");
+        }
+
+        _wasPreviouslyOpen = IsOpen;
+    }
+
+    [JSInvokable]
+    public async Task CloseSidebar()
+    {
+        await OnClose.InvokeAsync();
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+    }
+}

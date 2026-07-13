@@ -1,0 +1,1128 @@
+@page "/reports"
+@attribute [Authorize]
+@implements IDisposable
+@inject IReportsService ReportsService
+@inject IComputerService ComputerService
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@using System.Text.Json
+@using ComputerInventory.Contracts
+@using Microsoft.AspNetCore.Components
+
+<PageTitle>System Reports - VERBOSE</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-file-earmark-text me-2"></i>Verbose System Reports</h1>
+        <button class="btn btn-outline-primary" @onclick="LoadSummaries" disabled="@isLoading">
+            <i class="bi bi-arrow-clockwise me-2"></i>Refresh
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (!reportSummaries.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Reports"
+                    Title="No reports available"
+                    Description="Detailed hardware and software reports are collected automatically by the agent. Check back once agents have reported in." />
+    }
+    else
+    {
+        <!-- Computer Selection -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <label class="form-label">Select Computer</label>
+                <select class="form-select" value="@selectedComputerId" @onchange="OnComputerSelected">
+                    <option value="">-- Select a computer --</option>
+                    @foreach (var s in reportSummaries)
+                    {
+                        <option value="@s.ComputerId" selected="@(s.ComputerId == selectedComputerId)">@s.ComputerName (@s.SerialNumber)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                @if (isLoadingReport)
+                {
+                    <div class="d-flex align-items-center mt-4">
+                        <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                        <span class="text-muted">Loading report...</span>
+                    </div>
+                }
+                else if (selectedReport != null)
+                {
+                    <div class="alert alert-secondary mb-0 mt-4">
+                        <strong>Report collected:</strong> @ToLocalTime(selectedReport.CollectedAt).ToString("g")
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (selectedReport != null)
+        {
+            <!-- Report Navigation -->
+            <ul class="nav nav-tabs mb-4" id="reportTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="tab-hardware" data-bs-toggle="tab" data-bs-target="#hardware" role="tab" aria-selected="true" aria-controls="hardware">
+                        <i class="bi bi-cpu me-1"></i>Hardware
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-storage" data-bs-toggle="tab" data-bs-target="#storage" role="tab" aria-selected="false" aria-controls="storage">
+                        <i class="bi bi-hdd me-1"></i>Storage
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-network" data-bs-toggle="tab" data-bs-target="#network" role="tab" aria-selected="false" aria-controls="network">
+                        <i class="bi bi-ethernet me-1"></i>Network
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-os" data-bs-toggle="tab" data-bs-target="#os" role="tab" aria-selected="false" aria-controls="os">
+                        <i class="bi bi-windows me-1"></i>OS & License
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-software" data-bs-toggle="tab" data-bs-target="#software" role="tab" aria-selected="false" aria-controls="software">
+                        <i class="bi bi-box-seam me-1"></i>Software
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-security" data-bs-toggle="tab" data-bs-target="#security" role="tab" aria-selected="false" aria-controls="security">
+                        <i class="bi bi-shield-check me-1"></i>Security
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-performance" data-bs-toggle="tab" data-bs-target="#performance" role="tab" aria-selected="false" aria-controls="performance">
+                        <i class="bi bi-speedometer me-1"></i>Performance
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-events" data-bs-toggle="tab" data-bs-target="#events" role="tab" aria-selected="false" aria-controls="events">
+                        <i class="bi bi-journal-text me-1"></i>Events
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tab-users" data-bs-toggle="tab" data-bs-target="#users" role="tab" aria-selected="false" aria-controls="users">
+                        <i class="bi bi-people me-1"></i>Users
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+                <!-- Hardware Tab -->
+                <div class="tab-pane fade show active" id="hardware" role="tabpanel" aria-labelledby="tab-hardware">
+                    <div class="row">
+                        <!-- BIOS -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-motherboard me-2"></i>BIOS</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Version</td><td class="text-break">@selectedReport.BiosVersion</td></tr>
+                                        <tr><td>Manufacturer</td><td>@selectedReport.BiosManufacturer</td></tr>
+                                        <tr><td>Serial</td><td class="text-break">@selectedReport.BiosSerialNumber</td></tr>
+                                        <tr><td>SMBIOS</td><td>@selectedReport.SmbiosVersion</td></tr>
+                                        <tr><td>Release Date</td><td>@selectedReport.BiosReleaseDate?.ToString("d")</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Motherboard -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-cpu me-2"></i>Motherboard</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Manufacturer</td><td>@selectedReport.MotherboardManufacturer</td></tr>
+                                        <tr><td>Product</td><td>@selectedReport.MotherboardProduct</td></tr>
+                                        <tr><td>Serial</td><td class="text-break">@selectedReport.MotherboardSerialNumber</td></tr>
+                                        <tr><td>Version</td><td>@selectedReport.MotherboardVersion</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CPU -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-cpu-fill me-2"></i>Processor</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Name</td><td class="text-break">@selectedReport.CpuName</td></tr>
+                                        <tr><td>Manufacturer</td><td>@selectedReport.CpuManufacturer</td></tr>
+                                        <tr><td>Cores</td><td>@selectedReport.CpuCores</td></tr>
+                                        <tr><td>Logical Processors</td><td>@selectedReport.CpuLogicalProcessors</td></tr>
+                                        <tr><td>Max Speed</td><td>@(selectedReport.CpuMaxClockSpeed.HasValue ? $"{selectedReport.CpuMaxClockSpeed} MHz" : "-")</td></tr>
+                                        <tr><td>Current Speed</td><td>@(selectedReport.CpuCurrentClockSpeed.HasValue ? $"{selectedReport.CpuCurrentClockSpeed} MHz" : "-")</td></tr>
+                                        <tr><td>L2 Cache</td><td>@(selectedReport.CpuL2CacheSize.HasValue ? $"{selectedReport.CpuL2CacheSize} KB" : "-")</td></tr>
+                                        <tr><td>L3 Cache</td><td>@(selectedReport.CpuL3CacheSize.HasValue ? $"{selectedReport.CpuL3CacheSize} KB" : "-")</td></tr>
+                                        <tr><td>Socket</td><td>@selectedReport.CpuSocketDesignation</td></tr>
+                                        <tr><td>Architecture</td><td>@selectedReport.CpuArchitecture</td></tr>
+                                        <tr><td>Processor ID</td><td class="text-break small">@selectedReport.CpuProcessorId</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Memory -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-memory me-2"></i>Memory</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Total Physical</td><td>@FormatBytes(selectedReport.TotalPhysicalMemory)</td></tr>
+                                        <tr><td>Available Physical</td><td>@FormatBytes(selectedReport.AvailablePhysicalMemory)</td></tr>
+                                        <tr><td>Total Virtual</td><td>@FormatBytes(selectedReport.TotalVirtualMemory)</td></tr>
+                                        <tr><td>Available Virtual</td><td>@FormatBytes(selectedReport.AvailableVirtualMemory)</td></tr>
+                                        <tr><td>Slots Used</td><td>@selectedReport.MemorySlotsUsed / @selectedReport.MemorySlots</td></tr>
+                                    </table>
+                                    @if (!string.IsNullOrEmpty(selectedReport.MemoryModulesJson))
+                                    {
+                                        <h6 class="mt-3">Memory Modules</h6>
+                                        @RenderJsonTable(selectedReport.MemoryModulesJson, new[] { "DeviceLocator", "Manufacturer", "PartNumber", "Capacity", "Speed", "MemoryType" })
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GPU -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-gpu-card me-2"></i>Graphics</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>GPU</td><td class="text-break">@selectedReport.GpuName</td></tr>
+                                        <tr><td>Manufacturer</td><td>@selectedReport.GpuManufacturer</td></tr>
+                                        <tr><td>VRAM</td><td>@FormatBytes(selectedReport.GpuRam)</td></tr>
+                                        <tr><td>Driver Version</td><td>@selectedReport.GpuDriverVersion</td></tr>
+                                        <tr><td>Driver Date</td><td>@selectedReport.GpuDriverDate?.ToString("d")</td></tr>
+                                        <tr><td>Resolution</td><td>@selectedReport.GpuResolution</td></tr>
+                                        <tr><td>Monitors</td><td>@selectedReport.MonitorCount</td></tr>
+                                    </table>
+                                    @if (!string.IsNullOrEmpty(selectedReport.GraphicsCardsJson))
+                                    {
+                                        <h6 class="mt-3">All Graphics Cards</h6>
+                                        @RenderJsonTable(selectedReport.GraphicsCardsJson, new[] { "Name", "VideoRam", "DriverVersion", "Resolution" })
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chassis -->
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-pc-display me-2"></i>Chassis</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Manufacturer</td><td>@selectedReport.ChassisManufacturer</td></tr>
+                                        <tr><td>Type</td><td>@selectedReport.ChassisType</td></tr>
+                                        <tr><td>Serial</td><td class="text-break">@selectedReport.ChassisSerialNumber</td></tr>
+                                        <tr><td>Asset Tag</td><td>@selectedReport.ChassisAssetTag</td></tr>
+                                        <tr><td>System Family</td><td>@selectedReport.SystemFamily</td></tr>
+                                        <tr><td>SKU Number</td><td>@selectedReport.SystemSkuNumber</td></tr>
+                                        <AuthorizeView Roles="Admin">
+                                            <Authorized>
+                                                <tr><td>Machine GUID</td><td class="text-break small">@selectedReport.MachineGuid</td></tr>
+                                            </Authorized>
+                                            <NotAuthorized>
+                                                <tr><td>Machine GUID</td><td class="text-muted fst-italic">Admin only</td></tr>
+                                            </NotAuthorized>
+                                        </AuthorizeView>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Battery -->
+                        @if (selectedReport.HasBattery == true)
+                        {
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header"><i class="bi bi-battery-charging me-2"></i>Battery</div>
+                                    <div class="card-body">
+                                        <table class="table table-sm">
+                                            <tr><td>Status</td><td>@selectedReport.BatteryStatus</td></tr>
+                                            <tr><td>Charge</td><td>
+                                                <div class="progress progress-md">
+                                                    <div class="progress-bar @(selectedReport.BatteryChargePercent >= 50 ? "bg-success" : selectedReport.BatteryChargePercent >= 20 ? "bg-warning" : "bg-danger")" 
+                                                         style="width: @(selectedReport.BatteryChargePercent)%">
+                                                        @(selectedReport.BatteryChargePercent)%
+                                                    </div>
+                                                </div>
+                                            </td></tr>
+                                            <tr><td>Est. Runtime</td><td>@(selectedReport.BatteryEstimatedRuntime.HasValue && selectedReport.BatteryEstimatedRuntime > 0 ? $"{selectedReport.BatteryEstimatedRuntime} min" : "N/A")</td></tr>
+                                            <tr><td>Design Capacity</td><td>@(selectedReport.BatteryDesignCapacity.HasValue ? $"{selectedReport.BatteryDesignCapacity} mWh" : "-")</td></tr>
+                                            <tr><td>Full Charge Capacity</td><td>@(selectedReport.BatteryFullChargeCapacity.HasValue ? $"{selectedReport.BatteryFullChargeCapacity} mWh" : "-")</td></tr>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Storage Tab -->
+                <div class="tab-pane fade" id="storage" role="tabpanel" aria-labelledby="tab-storage">
+                    <div class="row">
+                        <div class="col-12 mb-4">
+                            <div class="card">
+                                <div class="card-header"><i class="bi bi-hdd me-2"></i>Storage Summary</div>
+                                <div class="card-body">
+                                    <div class="row text-center">
+                                        <div class="col-md-4">
+                                            <h5>Total Capacity</h5>
+                                            <h3 class="text-primary">@FormatBytes(selectedReport.TotalDiskSpace)</h3>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <h5>Free Space</h5>
+                                            <h3 class="text-success">@FormatBytes(selectedReport.FreeDiskSpace)</h3>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <h5>Used</h5>
+                                            <h3 class="text-warning">@(selectedReport.DiskUsagePercent?.ToString("F1") ?? "0")%</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(selectedReport.DisksJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header">Physical Disks</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.DisksJson, new[] { "Model", "InterfaceType", "MediaType", "Size", "SerialNumber", "Status" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(selectedReport.LogicalDrivesJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header">Logical Drives</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.LogicalDrivesJson, new[] { "DriveLetter", "Label", "FileSystem", "Size", "FreeSpace", "DriveType" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(selectedReport.PartitionsJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header">Partitions</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.PartitionsJson, new[] { "DiskIndex", "PartitionIndex", "Type", "Size", "Bootable", "PrimaryPartition" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Network Tab -->
+                <div class="tab-pane fade" id="network" role="tabpanel" aria-labelledby="tab-network">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-globe me-2"></i>Network Config</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Hostname</td><td>@selectedReport.DnsHostname</td></tr>
+                                        <tr><td>Domain</td><td>@selectedReport.DomainName</td></tr>
+                                        <tr><td>Workgroup</td><td>@selectedReport.Workgroup</td></tr>
+                                        <tr><td>Domain Joined</td><td>@(selectedReport.DomainJoined == true ? "Yes" : "No")</td></tr>
+                                        <tr><td>Default Gateway</td><td>@selectedReport.DefaultGateway</td></tr>
+                                        <tr><td>DNS Servers</td><td class="text-break">@selectedReport.DnsServers</td></tr>
+                                        <tr><td>DHCP Server</td><td>@selectedReport.DhcpServer</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(selectedReport.NetworkAdaptersJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header">Network Adapters</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.NetworkAdaptersJson, new[] { "Name", "Description", "MacAddress", "IpAddresses", "Status", "Speed" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(selectedReport.SharedFoldersJson))
+                        {
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header">Shared Folders</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.SharedFoldersJson, new[] { "Name", "Path", "Description" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(selectedReport.MappedDrivesJson))
+                        {
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header">Mapped Drives</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.MappedDrivesJson, new[] { "DeviceID", "ProviderName" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- OS & License Tab -->
+                <div class="tab-pane fade" id="os" role="tabpanel" aria-labelledby="tab-os">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-windows me-2"></i>Operating System</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr><td>Name</td><td>@selectedReport.OsName</td></tr>
+                                        <tr><td>Version</td><td>@selectedReport.OsVersion</td></tr>
+                                        <tr><td>Build</td><td>@selectedReport.OsBuild</td></tr>
+                                        <tr><td>Architecture</td><td>@selectedReport.OsArchitecture</td></tr>
+                                        <AuthorizeView Roles="Admin">
+                                            <Authorized>
+                                                <tr><td>OS Serial</td><td class="text-break small">@selectedReport.OsSerialNumber</td></tr>
+                                            </Authorized>
+                                            <NotAuthorized>
+                                                <tr><td>OS Serial</td><td class="text-muted fst-italic">Admin only</td></tr>
+                                            </NotAuthorized>
+                                        </AuthorizeView>
+                                        <tr><td>Service Pack</td><td>@selectedReport.OsServicePackMajor.@selectedReport.OsServicePackMinor</td></tr>
+                                        <tr><td>Locale</td><td>@selectedReport.OsLocale</td></tr>
+                                        <tr><td>Language</td><td>@selectedReport.OsLanguage</td></tr>
+                                        <tr><td>Install Date</td><td>@selectedReport.OsInstallDate</td></tr>
+                                        <tr><td>Last Boot</td><td>@selectedReport.OsLastBootTime</td></tr>
+                                        <tr><td>Uptime</td><td>@FormatUptime(selectedReport.OsUptime)</td></tr>
+                                        <tr><td>Time Zone</td><td>@selectedReport.TimeZone</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-key me-2"></i>Windows License</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr>
+                                            <td>Activation Status</td>
+                                            <td>
+                                                @if (selectedReport.WindowsIsActivated == true)
+                                                {
+                                                    <span class="badge bg-success">@selectedReport.WindowsActivationStatus</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">@selectedReport.WindowsActivationStatus</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                        <tr><td>Product ID</td><td class="text-break small">@selectedReport.WindowsProductId</td></tr>
+                                        <AuthorizeView Roles="Admin">
+                                            <Authorized>
+                                                <tr><td>Product Key</td><td class="text-break small font-monospace">@selectedReport.OsProductKey</td></tr>
+                                            </Authorized>
+                                            <NotAuthorized>
+                                                <tr><td>Product Key</td><td class="text-muted fst-italic">Admin only</td></tr>
+                                            </NotAuthorized>
+                                        </AuthorizeView>
+                                        <tr><td>Registered Owner</td><td>@selectedReport.WindowsRegisteredOwner</td></tr>
+                                        <tr><td>Registered Org</td><td>@selectedReport.WindowsRegisteredOrganization</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(selectedReport.EnvironmentVariablesJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <i class="bi bi-terminal me-2"></i>Environment Variables (System)
+                                        <button class="btn btn-sm btn-outline-secondary float-end" type="button" 
+                                                data-bs-toggle="collapse" data-bs-target="#envVars">
+                                            Toggle
+                                        </button>
+                                    </div>
+                                    <div class="collapse" id="envVars">
+                                        <div class="card-body scroll-md">
+                                            @{
+                                                try
+                                                {
+                                                    var envVars = JsonSerializer.Deserialize<Dictionary<string, string>>(selectedReport.EnvironmentVariablesJson);
+                                                    if (envVars != null)
+                                                    {
+                                                        var sortedEnvVars = envVars.OrderBy(x => x.Key).ToList();
+                                                        <table class="table table-sm table-striped">
+                                                            <thead class="sticky-header"><tr><th>Variable</th><th>Value</th></tr></thead>
+                                                            <tbody>
+                                                                <Virtualize Items="sortedEnvVars" Context="kv" ItemSize="35" OverscanCount="5">
+                                                                    <tr><td>@kv.Key</td><td class="text-break">@kv.Value</td></tr>
+                                                                </Virtualize>
+                                                            </tbody>
+                                                        </table>
+                                                    }
+                                                }
+                                                catch { <span class="text-muted">Unable to parse</span> }
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Software Tab -->
+                <div class="tab-pane fade" id="software" role="tabpanel" aria-labelledby="tab-software">
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5>Installed Software</h5>
+                                    <h2 class="text-primary">@(selectedReport.InstalledSoftwareCount ?? 0)</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5>Windows Updates</h5>
+                                    <h2 class="text-info">@(selectedReport.InstalledUpdatesCount ?? 0)</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5>Last Update</h5>
+                                    <h6>@(selectedReport.LastUpdateDate?.ToString("d") ?? "N/A")</h6>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(selectedReport.InstalledSoftwareJson))
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <i class="bi bi-box-seam me-2"></i>Installed Software
+                                <input type="text" class="form-control form-control-sm d-inline-block w-25 ms-3" 
+                                       placeholder="Filter..." @bind="softwareFilter" @bind:event="oninput" />
+                            </div>
+                            <div class="card-body scroll-lg">
+                                @RenderFilteredJsonTable(selectedReport.InstalledSoftwareJson, new[] { "Name", "Version", "Publisher", "InstallDate" }, softwareFilter)
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(selectedReport.InstalledUpdatesJson))
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header"><i class="bi bi-patch-check me-2"></i>Windows Updates</div>
+                            <div class="card-body scroll-md">
+                                @RenderJsonTable(selectedReport.InstalledUpdatesJson, new[] { "HotFixId", "Description", "InstalledBy", "InstalledOn" })
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(selectedReport.StartupProgramsJson))
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header"><i class="bi bi-play-circle me-2"></i>Startup Programs (@(selectedReport.StartupProgramsCount ?? 0))</div>
+                            <div class="card-body scroll-md">
+                                @RenderJsonTable(selectedReport.StartupProgramsJson, new[] { "Name", "Command", "Location", "User" })
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Security Tab -->
+                <div class="tab-pane fade" id="security" role="tabpanel" aria-labelledby="tab-security">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card h-100">
+                                <div class="card-header"><i class="bi bi-shield me-2"></i>Security Status</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tr>
+                                            <td>Antivirus</td>
+                                            <td>
+                                                @selectedReport.AntivirusProduct
+                                                @if (selectedReport.AntivirusStatus == "Enabled")
+                                                {
+                                                    <span class="badge bg-success ms-2">@selectedReport.AntivirusStatus</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning ms-2">@selectedReport.AntivirusStatus</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                        <tr><td>Firewall</td><td>@selectedReport.FirewallStatus</td></tr>
+                                        <tr>
+                                            <td>TPM</td>
+                                            <td>
+                                                @if (selectedReport.TpmPresent == true)
+                                                {
+                                                    <span class="badge bg-success">Present</span>
+                                                    <span class="ms-2">v@selectedReport.TpmVersion</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Not Present</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>Secure Boot</td>
+                                            <td>
+                                                @if (selectedReport.SecureBootEnabled == true)
+                                                {
+                                                    <span class="badge bg-success">Enabled</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning">Disabled</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>UAC</td>
+                                            <td>
+                                                @if (selectedReport.UacEnabled == true)
+                                                {
+                                                    <span class="badge bg-success">Enabled</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">Disabled</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td>BitLocker</td>
+                                            <td>
+                                                @if (selectedReport.BitLockerEnabled == true)
+                                                {
+                                                    <span class="badge bg-success">@selectedReport.BitLockerStatus</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">@selectedReport.BitLockerStatus</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(selectedReport.PrintersJson))
+                        {
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header"><i class="bi bi-printer me-2"></i>Printers</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.PrintersJson, new[] { "Name", "DriverName", "PortName", "Default", "Network" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(selectedReport.UsbDevicesJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header"><i class="bi bi-usb-symbol me-2"></i>USB Devices</div>
+                                    <div class="card-body scroll-sm">
+                                        @RenderJsonTable(selectedReport.UsbDevicesJson, new[] { "Name", "DeviceId", "Description", "Status" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Performance Tab -->
+                <div class="tab-pane fade" id="performance" role="tabpanel" aria-labelledby="tab-performance">
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5>CPU Usage</h5>
+                                    <div class="progress progress-lg">
+                                        <div class="progress-bar @GetUsageColor(selectedReport.CpuUsagePercent)" 
+                                             style="width: @(selectedReport.CpuUsagePercent ?? 0)%">
+                                            @(selectedReport.CpuUsagePercent?.ToString("F1") ?? "0")%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5>Memory Usage</h5>
+                                    <div class="progress progress-lg">
+                                        <div class="progress-bar @GetUsageColor(selectedReport.MemoryUsagePercent)" 
+                                             style="width: @(selectedReport.MemoryUsagePercent ?? 0)%">
+                                            @(selectedReport.MemoryUsagePercent?.ToString("F1") ?? "0")%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5>Disk Usage</h5>
+                                    <div class="progress progress-lg">
+                                        <div class="progress-bar @GetUsageColor(selectedReport.DiskUsagePercent)" 
+                                             style="width: @(selectedReport.DiskUsagePercent ?? 0)%">
+                                            @(selectedReport.DiskUsagePercent?.ToString("F1") ?? "0")%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <i class="bi bi-activity me-2"></i>Running Processes (@(selectedReport.RunningProcessesCount ?? 0))
+                                </div>
+                                <div class="card-body scroll-md">
+                                    @if (!string.IsNullOrEmpty(selectedReport.RunningProcessesJson))
+                                    {
+                                        @RenderJsonTable(selectedReport.RunningProcessesJson, new[] { "ProcessId", "Name", "WorkingSetSize" })
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <i class="bi bi-gear me-2"></i>Services 
+                                    (<span class="text-success">@(selectedReport.RunningServicesCount ?? 0) running</span>, 
+                                    <span class="text-secondary">@(selectedReport.StoppedServicesCount ?? 0) stopped</span>)
+                                </div>
+                                <div class="card-body scroll-md">
+                                    @if (!string.IsNullOrEmpty(selectedReport.ServicesJson))
+                                    {
+                                        @RenderJsonTable(selectedReport.ServicesJson, new[] { "DisplayName", "Name", "Status", "StartType" })
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(selectedReport.ScheduledTasksJson))
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header"><i class="bi bi-calendar-check me-2"></i>Scheduled Tasks (@(selectedReport.ScheduledTasksCount ?? 0))</div>
+                            <div class="card-body scroll-sm">
+                                @RenderJsonTable(selectedReport.ScheduledTasksJson, new[] { "Name", "Path", "Status", "Author" })
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Events Tab -->
+                <div class="tab-pane fade" id="events" role="tabpanel" aria-labelledby="tab-events">
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="card text-center bg-danger text-white">
+                                <div class="card-body">
+                                    <h5>Blue Screens (30 days)</h5>
+                                    <h2>@(selectedReport.BlueScreenCount ?? 0)</h2>
+                                    @if (selectedReport.LastBlueScreen.HasValue)
+                                    {
+                                        <small>Last: @ToLocalTime(selectedReport.LastBlueScreen.Value).ToString("g")</small>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(selectedReport.RecentErrorsJson))
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header bg-danger text-white">
+                                <i class="bi bi-exclamation-triangle me-2"></i>Recent Errors (Last 30 Days)
+                            </div>
+                            <div class="card-body scroll-md">
+                                @RenderJsonTable(selectedReport.RecentErrorsJson, new[] { "TimeGenerated", "Source", "EventId", "Message" })
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(selectedReport.RecentWarningsJson))
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header bg-warning">
+                                <i class="bi bi-exclamation-circle me-2"></i>Recent Warnings (Last 30 Days)
+                            </div>
+                            <div class="card-body scroll-md">
+                                @RenderJsonTable(selectedReport.RecentWarningsJson, new[] { "TimeGenerated", "Source", "EventId", "Message" })
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Users Tab -->
+                <div class="tab-pane fade" id="users" role="tabpanel" aria-labelledby="tab-users">
+                    <div class="row">
+                        @if (!string.IsNullOrEmpty(selectedReport.LoggedOnUsersJson))
+                        {
+                            <div class="col-md-6 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header"><i class="bi bi-person-check me-2"></i>Currently Logged On</div>
+                                    <div class="card-body">
+                                        @{
+                                            try
+                                            {
+                                                var loggedOn = JsonSerializer.Deserialize<List<string>>(selectedReport.LoggedOnUsersJson);
+                                                if (loggedOn != null && loggedOn.Any())
+                                                {
+                                                    <ul class="list-group">
+                                                        @foreach (var user in loggedOn.Distinct())
+                                                        {
+                                                            <li class="list-group-item">
+                                                                <i class="bi bi-person-fill me-2 text-success"></i>@user
+                                                            </li>
+                                                        }
+                                                    </ul>
+                                                }
+                                                else
+                                                {
+                                                    <p class="text-muted">No users currently logged on</p>
+                                                }
+                                            }
+                                            catch { <span class="text-muted">Unable to parse</span> }
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(selectedReport.LocalUsersJson))
+                        {
+                            <div class="col-12 mb-4">
+                                <div class="card">
+                                    <div class="card-header"><i class="bi bi-people me-2"></i>Local User Accounts</div>
+                                    <div class="card-body">
+                                        @RenderJsonTable(selectedReport.LocalUsersJson, new[] { "Name", "FullName", "Description", "Disabled", "PasswordRequired", "Sid" })
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "computerId")]
+    public int? ComputerIdFromQuery { get; set; }
+
+    private CancellationTokenSource _cts = new();
+    private List<ReportSummaryDto> reportSummaries = new();
+    private SystemDetailsReport? selectedReport;
+    private int? selectedComputerId;
+    private bool isLoading = true;
+    private bool isLoadingReport = false;
+    private string softwareFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSummaries();
+
+        if (ComputerIdFromQuery.HasValue && reportSummaries.Any(s => s.ComputerId == ComputerIdFromQuery.Value))
+        {
+            selectedComputerId = ComputerIdFromQuery.Value;
+            await LoadReportForComputer(ComputerIdFromQuery.Value);
+        }
+    }
+
+    private async Task LoadSummaries()
+    {
+        isLoading = true;
+        selectedReport = null;
+        try
+        {
+            var result = await ReportsService.GetReportSummariesAsync(_cts.Token);
+            reportSummaries = result.Success ? result.Data ?? new() : new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnComputerSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var computerId))
+        {
+            selectedComputerId = computerId;
+            await LoadReportForComputer(computerId);
+        }
+        else
+        {
+            selectedComputerId = null;
+            selectedReport = null;
+        }
+    }
+
+    private async Task LoadReportForComputer(int computerId)
+    {
+        isLoadingReport = true;
+        selectedReport = null;
+        StateHasChanged();
+        try
+        {
+            var result = await ReportsService.GetReportByComputerIdAsync(computerId, _cts.Token);
+            selectedReport = result.Success ? result.Data : null;
+        }
+        finally
+        {
+            isLoadingReport = false;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatBytes(long? bytes)
+    {
+        if (bytes == null || bytes == 0) return "0 B";
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        int order = 0;
+        double size = bytes.Value;
+        while (size >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            size /= 1024;
+        }
+        return $"{size:0.##} {sizes[order]}";
+    }
+
+    private string FormatUptime(long? seconds)
+    {
+        if (seconds == null || seconds == 0) return "N/A";
+        var ts = TimeSpan.FromSeconds(seconds.Value);
+        return $"{(int)ts.TotalDays}d {ts.Hours}h {ts.Minutes}m";
+    }
+
+    private string GetUsageColor(double? usage)
+    {
+        if (usage == null) return "bg-secondary";
+        if (usage >= 90) return "bg-danger";
+        if (usage >= 70) return "bg-warning";
+        return "bg-success";
+    }
+
+    private RenderFragment RenderJsonTable(string json, string[] columns) => builder =>
+    {
+        try
+        {
+            var items = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(json);
+            if (items == null || !items.Any())
+            {
+                builder.AddContent(0, "No data");
+                return;
+            }
+
+            builder.OpenElement(1, "table");
+            builder.AddAttribute(2, "class", "table table-sm table-striped");
+
+            // Header
+            builder.OpenElement(3, "thead");
+            builder.AddAttribute(30, "style", "position: sticky; top: 0; z-index: 1; background-color: var(--bs-table-bg, #fff);");
+            builder.OpenElement(4, "tr");
+            foreach (var col in columns)
+            {
+                builder.OpenElement(5, "th");
+                builder.AddContent(6, col);
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+
+            // Body with Virtualize
+            builder.OpenElement(7, "tbody");
+            builder.OpenComponent<Virtualize<Dictionary<string, JsonElement>>>(8);
+            builder.AddAttribute(9, "Items", (ICollection<Dictionary<string, JsonElement>>)items);
+            builder.AddAttribute(10, "ItemSize", 35f);
+            builder.AddAttribute(11, "OverscanCount", 5);
+            builder.AddAttribute(12, "ChildContent",
+                (RenderFragment<Dictionary<string, JsonElement>>)(item => rowBuilder =>
+                {
+                    rowBuilder.OpenElement(0, "tr");
+                    foreach (var col in columns)
+                    {
+                        rowBuilder.OpenElement(1, "td");
+                        rowBuilder.AddAttribute(2, "class", "text-break");
+                        if (item.TryGetValue(col, out var value))
+                        {
+                            rowBuilder.AddContent(3, FormatJsonValue(value, col));
+                        }
+                        rowBuilder.CloseElement();
+                    }
+                    rowBuilder.CloseElement();
+                }));
+            builder.CloseComponent();
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+        catch
+        {
+            builder.AddContent(0, "Unable to parse data");
+        }
+    };
+
+    private RenderFragment RenderFilteredJsonTable(string json, string[] columns, string filter) => builder =>
+    {
+        try
+        {
+            var items = JsonSerializer.Deserialize<List<Dictionary<string, JsonElement>>>(json);
+            if (items == null || !items.Any())
+            {
+                builder.AddContent(0, "No data");
+                return;
+            }
+
+            // Filter items
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                items = items.Where(item => 
+                    item.Values.Any(v => v.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase))
+                ).ToList();
+            }
+
+            builder.OpenElement(1, "table");
+            builder.AddAttribute(2, "class", "table table-sm table-striped");
+
+            // Header
+            builder.OpenElement(3, "thead");
+            builder.AddAttribute(30, "style", "position: sticky; top: 0; z-index: 1; background-color: var(--bs-table-bg, #fff);");
+            builder.OpenElement(4, "tr");
+            foreach (var col in columns)
+            {
+                builder.OpenElement(5, "th");
+                builder.AddContent(6, col);
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+
+            // Body with Virtualize
+            builder.OpenElement(7, "tbody");
+            builder.OpenComponent<Virtualize<Dictionary<string, JsonElement>>>(8);
+            builder.AddAttribute(9, "Items", (ICollection<Dictionary<string, JsonElement>>)items);
+            builder.AddAttribute(10, "ItemSize", 35f);
+            builder.AddAttribute(11, "OverscanCount", 5);
+            builder.AddAttribute(12, "ChildContent",
+                (RenderFragment<Dictionary<string, JsonElement>>)(item => rowBuilder =>
+                {
+                    rowBuilder.OpenElement(0, "tr");
+                    foreach (var col in columns)
+                    {
+                        rowBuilder.OpenElement(1, "td");
+                        rowBuilder.AddAttribute(2, "class", "text-break");
+                        if (item.TryGetValue(col, out var value))
+                        {
+                            rowBuilder.AddContent(3, FormatJsonValue(value, col));
+                        }
+                        rowBuilder.CloseElement();
+                    }
+                    rowBuilder.CloseElement();
+                }));
+            builder.CloseComponent();
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+        catch
+        {
+            builder.AddContent(0, "Unable to parse data");
+        }
+    };
+
+    private string FormatJsonValue(JsonElement value, string columnName)
+    {
+        if (value.ValueKind == JsonValueKind.Null) return "-";
+        
+        var stringVal = value.ToString();
+        
+        // Format bytes for size columns
+        if (columnName.Contains("Size") || columnName.Contains("Capacity") || columnName == "VideoRam" || columnName == "WorkingSetSize" || columnName == "Speed")
+        {
+            if (long.TryParse(stringVal, out var bytes))
+            {
+                if (columnName == "Speed" && bytes < 100000000) // Network speed in bps
+                    return $"{bytes / 1000000} Mbps";
+                return FormatBytes(bytes);
+            }
+        }
+        
+        // Format dates - convert to Central Time
+        if (columnName.Contains("Date") || columnName == "TimeGenerated" || columnName == "StartTime" || columnName == "InstalledOn")
+        {
+            if (DateTime.TryParse(stringVal, out var date))
+            {
+                var localTime = ToLocalTime(date);
+                return localTime.ToString("g");
+            }
+        }
+        
+        // Format booleans
+        if (value.ValueKind == JsonValueKind.True) return "Yes";
+        if (value.ValueKind == JsonValueKind.False) return "No";
+        
+        // Truncate long values
+        if (stringVal.Length > 100)
+            return stringVal.Substring(0, 100) + "...";
+        
+        return stringVal;
+    }
+
+    private static DateTime ToLocalTime(DateTime utcTime)
+    {
+        var utc = utcTime.Kind == DateTimeKind.Utc ? utcTime : DateTime.SpecifyKind(utcTime, DateTimeKind.Utc);
+        return utc.ToLocalTime();
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

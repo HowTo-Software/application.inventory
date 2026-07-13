@@ -1,0 +1,62 @@
+# ----- .NET / C# -----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code
+.vscode/
+
+# Rider
+.idea/
+
+# Visual Studio
+.vs/
+
+# Test results
+[Tt]est[Rr]esults/
+
+# NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# ----- Build outputs -----
+publish/
+publish-thinclient/
+publish-update/
+publish-agent-temp/
+
+# Generated agent packages served by the API (produced by build/package scripts).
+# Keep the folder, ignore the generated binaries/metadata.
+/src/ComputerInventory.Api/agent/*
+!/src/ComputerInventory.Api/agent/.gitkeep
+
+# ----- Temp / scratch -----
+temp/
+
+# ----- Secrets & credentials -----
+.env
+*.pfx
+*.p12
+
+# ----- OS / editor junk -----
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+
+# ----- Docker -----
+docker-images/*.tar
+
+# ----- Logs -----
+*.log
+logs/

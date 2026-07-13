@@ -1,0 +1,494 @@
+@page "/maintenance"
+@attribute [Authorize]
+@implements IDisposable
+@inject IMaintenanceService MaintenanceService
+@inject ILookupService LookupService
+@inject IComputerService ComputerService
+@using ComputerInventory.Contracts
+
+<PageTitle>Maintenance - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Maintenance Records</h1>
+        <button class="btn btn-primary" @onclick="ShowAddModal">
+            <i class="bi bi-plus-lg me-2"></i>Add Record
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (records == null || !records.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Maintenance"
+                    Title="No maintenance records"
+                    Description="Schedule and track maintenance tasks for your computers."
+                    ActionText="Add Record"
+                    ActionIcon="bi-plus-lg"
+                    ActionClicked="ShowAddModal" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <small class="text-muted">Showing @((currentPage - 1) * pageSize + 1)–@(Math.Min(currentPage * pageSize, totalCount)) of @totalCount records</small>
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="form-label mb-0 text-muted small">Per page:</label>
+                        <select class="form-select form-select-sm w-auto" @bind="pageSize" @bind:after="() => LoadPageAsync(1)">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-responsive table-scroll">
+                    <table class="table table-hover">
+                        <thead class="sticky-header">
+                            <tr>
+                                <th>Date</th>
+                                <th>Computer</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                                <th>Performed By</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var record in records)
+                            {
+                                <tr>
+                                    <td>@record.ScheduledDate.ToString("MM/dd/yyyy")</td>
+                                    <td>@record.ComputerHostname</td>
+                                    <td>@record.Type</td>
+                                    <td>@record.Description</td>
+                                    <td>@record.PerformedBy</td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(record.Status)">
+                                            @record.Status
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => ShowEditModal(record)" aria-label="Edit maintenance record">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteRecord(record.Id)" aria-label="Delete maintenance record">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        @if (totalPages > 1)
+        {
+            <nav class="mt-3">
+                <ul class="pagination pagination-sm justify-content-center">
+                    <li class="page-item @(currentPage <= 1 ? "disabled" : "")">
+                        <button class="page-link" @onclick="() => LoadPageAsync(1)" disabled="@(currentPage <= 1)" aria-label="First page">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                    </li>
+                    <li class="page-item @(currentPage <= 1 ? "disabled" : "")">
+                        <button class="page-link" @onclick="() => LoadPageAsync(currentPage - 1)" disabled="@(currentPage <= 1)" aria-label="Previous page">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                    </li>
+
+                    @foreach (var p in GetPageNumbers())
+                    {
+                        <li class="page-item @(p == currentPage ? "active" : "")">
+                            <button class="page-link" @onclick="() => LoadPageAsync(p)">@p</button>
+                        </li>
+                    }
+
+                    <li class="page-item @(currentPage >= totalPages ? "disabled" : "")">
+                        <button class="page-link" @onclick="() => LoadPageAsync(currentPage + 1)" disabled="@(currentPage >= totalPages)" aria-label="Next page">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </li>
+                    <li class="page-item @(currentPage >= totalPages ? "disabled" : "")">
+                        <button class="page-link" @onclick="() => LoadPageAsync(totalPages)" disabled="@(currentPage >= totalPages)" aria-label="Last page">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Maintenance Record</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm @key="newRecord" Model="newRecord" OnValidSubmit="SaveRecord">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Computer *</label>
+                            <div class="position-relative">
+                                <input type="text" class="form-control" placeholder="Search by hostname, serial number, or IP..."
+                                       value="@_computerSearchText" @oninput="OnComputerSearchInput"
+                                       @onfocus="() => _showComputerDropdown = true"
+                                       autocomplete="off" />
+                                @if (_selectedComputer != null)
+                                {
+                                    <div class="mt-1">
+                                        <span class="badge bg-primary">
+                                            @_selectedComputer.Hostname (@_selectedComputer.SerialNumber)
+                                            <button type="button" class="btn-close btn-close-white ms-1" style="font-size: 0.6rem;" @onclick="ClearComputerSelection" aria-label="Clear selection"></button>
+                                        </span>
+                                    </div>
+                                }
+                                @if (_showComputerDropdown && _filteredComputers.Any())
+                                {
+                                    <ul class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 200px; overflow-y: auto;">
+                                        @foreach (var computer in _filteredComputers.Take(50))
+                                        {
+                                            <li class="list-group-item list-group-item-action" style="cursor: pointer;" @onclick="() => SelectComputer(computer)">
+                                                <strong>@computer.Hostname</strong>
+                                                <small class="text-muted ms-2">@computer.SerialNumber</small>
+                                                @if (!string.IsNullOrEmpty(computer.IpAddress))
+                                                {
+                                                    <small class="text-muted ms-2">@computer.IpAddress</small>
+                                                }
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                            @if (newRecord!.ComputerId == 0 && _computerSearchText?.Length > 0 && _selectedComputer == null)
+                            {
+                                <div class="text-danger small mt-1">Please select a computer from the list.</div>
+                            }
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Maintenance Type *</label>
+                            <InputSelect @bind-Value="newRecord.Type" class="form-select">
+                                <option value="">-- Select Type --</option>
+                                @foreach (var t in _maintenanceTypes)
+                                {
+                                    <option value="@t.Name">@t.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description *</label>
+                            <InputTextArea @bind-Value="newRecord.Description" class="form-control" rows="3" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Performed By</label>
+                            <InputText @bind-Value="newRecord.PerformedBy" class="form-control" />
+                        </div>
+                        <div class="form-check mb-3">
+                            <InputCheckbox @bind-Value="newRecord.SetComputerInMaintenance" class="form-check-input" id="setMaintenance" />
+                            <label class="form-check-label" for="setMaintenance">Set Computer to Maintenance Status</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showEditModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Maintenance Record</h5>
+                    <button type="button" class="btn-close" @onclick="CloseEditModal" aria-label="Close"></button>
+                </div>
+                <EditForm @key="editRecord" Model="editRecord" OnValidSubmit="SaveEditRecord">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Computer</label>
+                            <input type="text" class="form-control" value="@_editComputerName" disabled />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Maintenance Type *</label>
+                            <InputSelect @bind-Value="editRecord!.Type" class="form-select">
+                                <option value="">-- Select Type --</option>
+                                @foreach (var t in _maintenanceTypes)
+                                {
+                                    <option value="@t.Name">@t.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description *</label>
+                            <InputTextArea @bind-Value="editRecord!.Description" class="form-control" rows="3" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Scheduled Date</label>
+                            <InputDate @bind-Value="editRecord!.ScheduledDate" class="form-control" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Completed Date</label>
+                            <InputDate @bind-Value="editRecord!.CompletedDate" class="form-control" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Cost</label>
+                            <InputNumber @bind-Value="editRecord!.Cost" class="form-control" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Performed By</label>
+                            <InputText @bind-Value="editRecord!.PerformedBy" class="form-control" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Notes</label>
+                            <InputTextArea @bind-Value="editRecord!.Notes" class="form-control" rows="3" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Status *</label>
+                            <InputSelect @bind-Value="editRecord!.Status" class="form-select">
+                                <option value="">-- Select Status --</option>
+                                @foreach (var s in _maintenanceStatuses)
+                                {
+                                    <option value="@s.Name">@s.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseEditModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private CancellationTokenSource _cts = new();
+    private List<MaintenanceRecordDto>? records;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool showEditModal = false;
+    private CreateMaintenanceRequest? newRecord;
+    private UpdateMaintenanceRequest? editRecord;
+    private int _editRecordId;
+    private string _editComputerName = "";
+    private int currentPage = 1;
+    private int pageSize = 25;
+    private int totalCount;
+    private int totalPages;
+
+    // Lookup data
+    private List<LookupItemDto> _maintenanceTypes = new();
+    private List<LookupItemDto> _maintenanceStatuses = new();
+
+    // Computer search
+    private List<ComputerListDto> _computers = new();
+    private List<ComputerListDto> _filteredComputers = new();
+    private ComputerListDto? _selectedComputer;
+    private string _computerSearchText = "";
+    private bool _showComputerDropdown;
+    private bool _computersLoaded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var typesTask = LookupService.GetMaintenanceTypesAsync(_cts.Token);
+        var statusesTask = LookupService.GetMaintenanceStatusesAsync(_cts.Token);
+        await Task.WhenAll(typesTask, statusesTask);
+        _maintenanceTypes = typesTask.Result;
+        _maintenanceStatuses = statusesTask.Result;
+
+        await LoadPageAsync(1);
+    }
+
+    private async Task LoadPageAsync(int page)
+    {
+        isLoading = true;
+        currentPage = page;
+        try
+        {
+            var result = await MaintenanceService.GetPagedAsync(page, pageSize, _cts.Token);
+            if (result.Success && result.Data != null)
+            {
+                records = result.Data.Items;
+                totalCount = result.Data.TotalCount;
+                totalPages = result.Data.TotalPages;
+            }
+            else
+            {
+                records = new List<MaintenanceRecordDto>();
+                totalCount = 0;
+                totalPages = 0;
+            }
+        }
+        catch
+        {
+            records = new List<MaintenanceRecordDto>();
+            totalCount = 0;
+            totalPages = 0;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private IEnumerable<int> GetPageNumbers()
+    {
+        const int maxVisible = 7;
+        int start = Math.Max(1, currentPage - maxVisible / 2);
+        int end = Math.Min(totalPages, start + maxVisible - 1);
+        start = Math.Max(1, end - maxVisible + 1);
+        return Enumerable.Range(start, end - start + 1);
+    }
+
+    private async Task ShowAddModal()
+    {
+        newRecord = new CreateMaintenanceRequest();
+        _computerSearchText = "";
+        _selectedComputer = null;
+        _filteredComputers = new();
+        _showComputerDropdown = false;
+
+        if (!_computersLoaded)
+        {
+            var result = await ComputerService.GetAllAsync(_cts.Token);
+            if (result.Success)
+            {
+                _computers = result.Data ?? new();
+            }
+            _computersLoaded = true;
+        }
+
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        newRecord = null;
+        _showComputerDropdown = false;
+        _selectedComputer = null;
+        _computerSearchText = "";
+    }
+
+    private void OnComputerSearchInput(ChangeEventArgs e)
+    {
+        _computerSearchText = e.Value?.ToString() ?? "";
+        _showComputerDropdown = true;
+
+        if (string.IsNullOrWhiteSpace(_computerSearchText))
+        {
+            _filteredComputers = new();
+            return;
+        }
+
+        var term = _computerSearchText.Trim();
+        _filteredComputers = _computers.Where(c =>
+            (c.Hostname?.Contains(term, StringComparison.OrdinalIgnoreCase) == true) ||
+            (c.SerialNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) == true) ||
+            (c.IpAddress?.Contains(term, StringComparison.OrdinalIgnoreCase) == true)
+        ).ToList();
+    }
+
+    private void SelectComputer(ComputerListDto computer)
+    {
+        _selectedComputer = computer;
+        newRecord!.ComputerId = computer.Id;
+        _computerSearchText = computer.Hostname;
+        _showComputerDropdown = false;
+        _filteredComputers = new();
+    }
+
+    private void ClearComputerSelection()
+    {
+        _selectedComputer = null;
+        newRecord!.ComputerId = 0;
+        _computerSearchText = "";
+        _filteredComputers = new();
+    }
+
+    private async Task SaveRecord()
+    {
+        if (newRecord == null || newRecord.ComputerId == 0) return;
+        await MaintenanceService.CreateAsync(newRecord, _cts.Token);
+        CloseModal();
+        await LoadPageAsync(currentPage);
+    }
+
+    private void ShowEditModal(MaintenanceRecordDto record)
+    {
+        _editRecordId = record.Id;
+        _editComputerName = record.ComputerHostname ?? "Unknown";
+        editRecord = new UpdateMaintenanceRequest
+        {
+            Type = record.Type,
+            Description = record.Description,
+            ScheduledDate = record.ScheduledDate,
+            CompletedDate = record.CompletedDate,
+            Cost = record.Cost,
+            PerformedBy = record.PerformedBy,
+            Notes = record.Notes,
+            Status = record.Status
+        };
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        showEditModal = false;
+        editRecord = null;
+        _editRecordId = 0;
+        _editComputerName = "";
+    }
+
+    private async Task SaveEditRecord()
+    {
+        if (editRecord == null) return;
+        await MaintenanceService.UpdateAsync(_editRecordId, editRecord, _cts.Token);
+        CloseEditModal();
+        await LoadPageAsync(currentPage);
+    }
+
+    private async Task DeleteRecord(int id)
+    {
+        await MaintenanceService.DeleteAsync(id, _cts.Token);
+        await LoadPageAsync(currentPage);
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Completed" => "bg-success",
+        "InProgress" => "bg-primary",
+        "Scheduled" => "bg-info",
+        "Pending" => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

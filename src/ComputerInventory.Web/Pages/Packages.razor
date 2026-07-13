@@ -1,0 +1,647 @@
+@page "/packages"
+@attribute [Authorize(Roles = "Admin")]
+@inject IPackageService PackageService
+@inject IJSRuntime JS
+
+<PageTitle>Package Management - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-box-seam me-2"></i>Package Management</h1>
+        <button class="btn btn-primary" @onclick="ShowUploadModal">
+            <i class="bi bi-upload me-2"></i>Upload Package
+        </button>
+    </div>
+
+    @* Distribution Summary Cards *@
+    @if (summary != null)
+    {
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <h6 class="card-title">Active Version</h6>
+                        <h3>@summary.ActiveVersion</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <h6 class="card-title">At Latest</h6>
+                        <h3>@summary.ComputersAtLatest <small>computers</small></h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-dark">
+                    <div class="card-body">
+                        <h6 class="card-title">Pending Update</h6>
+                        <h3>@summary.ComputersPendingUpdate</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <h6 class="card-title">Total Packages</h6>
+                        <h3>@summary.TotalPackages</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (summary.VersionDistribution.Count > 0)
+        {
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Fleet Version Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        @foreach (var kvp in summary.VersionDistribution.OrderByDescending(x => x.Value))
+                        {
+                            <div class="col-md-3 mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="badge @(kvp.Key == summary.ActiveVersion ? "bg-success" : "bg-secondary")">
+                                        @kvp.Key
+                                    </span>
+                                    <strong>@kvp.Value</strong>
+                                </div>
+                                <div class="progress progress-thin">
+                                    @{ var totalComputers = summary.VersionDistribution.Values.Sum(); }
+                                    <div class="progress-bar @(kvp.Key == summary.ActiveVersion ? "bg-success" : "bg-secondary")"
+                                         style="width: @(totalComputers > 0 ? (kvp.Value * 100.0 / totalComputers).ToString("F0") : "0")%"></div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+
+    @* Package List *@
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (packages == null || !packages.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Packages"
+                    Title="No packages uploaded"
+                    Description="Upload your first agent package to start distributing updates to your computers."
+                    ActionText="Upload Package"
+                    ActionIcon="bi-cloud-arrow-up"
+                    ActionClicked="ShowUploadModal" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Version</th>
+                                <th>Status</th>
+                                <th>Channel</th>
+                                <th>Size</th>
+                                <th>Downloads</th>
+                                <th>Created</th>
+                                <th>Published</th>
+                                <th>Rules</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pkg in packages)
+                            {
+                                <tr class="@(pkg.Status == "Active" ? "table-success" : "")">
+                                    <td>
+                                        <strong>@pkg.Version</strong>
+                                        @if (pkg.IsBreakingChange) { <span class="badge bg-danger ms-1">Breaking</span> }
+                                        @if (pkg.IsRequired) { <span class="badge bg-warning text-dark ms-1">Required</span> }
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(pkg.Status)">@pkg.Status</span>
+                                    </td>
+                                    <td><span class="badge bg-outline-secondary border">@pkg.Channel</span></td>
+                                    <td>@FormatFileSize(pkg.FileSize)</td>
+                                    <td>@pkg.DownloadCount</td>
+                                    <td>
+                                        <small>@pkg.CreatedAt.ToString("MM/dd/yyyy HH:mm")</small>
+                                        <br /><small class="text-muted">by @pkg.CreatedBy</small>
+                                    </td>
+                                    <td>
+                                        @if (pkg.PublishedAt.HasValue)
+                                        {
+                                            <small>@pkg.PublishedAt.Value.ToString("MM/dd/yyyy HH:mm")</small>
+                                        }
+                                        else
+                                        {
+                                            <small class="text-muted">—</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (pkg.DistributionRuleCount > 0)
+                                        {
+                                            <span class="badge bg-info">@pkg.DistributionRuleCount rules</span>
+                                        }
+                                        else
+                                        {
+                                            <small class="text-muted">All</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" title="Details"
+                                                    @onclick="() => ShowDetailModal(pkg.Id)"
+                                                    aria-label="View details">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+
+                                            @if (pkg.Status == "Draft")
+                                            {
+                                                <button class="btn btn-outline-success" title="Publish"
+                                                        @onclick="() => PublishPackage(pkg.Id)"
+                                                        aria-label="Publish package">
+                                                    <i class="bi bi-check-circle"></i>
+                                                </button>
+                                            }
+
+                                            @if (pkg.Status == "Published")
+                                            {
+                                                <button class="btn btn-success" title="Activate"
+                                                        @onclick="() => ActivatePackage(pkg.Id)"
+                                                        aria-label="Activate package">
+                                                    <i class="bi bi-lightning"></i>
+                                                </button>
+                                            }
+
+                                            @if (pkg.Status == "Published" || pkg.Status == "Deprecated")
+                                            {
+                                                <button class="btn btn-outline-warning" title="Rollback to this version"
+                                                        @onclick="() => RollbackToVersion(pkg.Id)"
+                                                        aria-label="Rollback to this version">
+                                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                                </button>
+                                            }
+
+                                            @if (pkg.Status != "Active" && pkg.Status != "Deprecated" && pkg.Status != "Archived")
+                                            {
+                                                <button class="btn btn-outline-secondary" title="Deprecate"
+                                                        @onclick="() => DeprecatePackage(pkg.Id)"
+                                                        aria-label="Deprecate package">
+                                                    <i class="bi bi-archive"></i>
+                                                </button>
+                                            }
+
+                                            @if (pkg.Status != "Active")
+                                            {
+                                                <button class="btn btn-outline-danger" title="Delete"
+                                                        @onclick="() => DeletePackage(pkg.Id)"
+                                                        aria-label="Delete package">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@* Upload Modal *@
+@if (showUploadModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Upload Package</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModals" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Package File (ZIP) *</label>
+                        <InputFile OnChange="OnFileSelected" class="form-control" accept=".zip" />
+                        @if (selectedFile != null)
+                        {
+                            <small class="text-muted">@selectedFile.Name (@FormatFileSize(selectedFile.Size))</small>
+                        }
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Version *</label>
+                        <input type="text" @bind="uploadVersion" class="form-control" placeholder="e.g. 1.0.5.0" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Release Notes</label>
+                        <textarea @bind="uploadReleaseNotes" class="form-control" rows="3"
+                                  placeholder="Describe what changed in this version..."></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Channel</label>
+                                <select @bind="uploadChannel" class="form-select">
+                                    <option value="stable">Stable</option>
+                                    <option value="beta">Beta</option>
+                                    <option value="canary">Canary</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Minimum Agent Version</label>
+                                <input type="text" @bind="uploadMinVersion" class="form-control"
+                                       placeholder="Optional — e.g. 1.0.3.0" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check mb-3">
+                                <input type="checkbox" @bind="uploadIsRequired" class="form-check-input" id="isRequired" />
+                                <label class="form-check-label" for="isRequired">Required Update</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mb-3">
+                                <input type="checkbox" @bind="uploadIsBreaking" class="form-check-input" id="isBreaking" />
+                                <label class="form-check-label" for="isBreaking">Breaking Change</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(uploadError))
+                    {
+                        <div class="alert alert-danger">@uploadError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="UploadPackage" disabled="@isUploading">
+                        @if (isUploading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Upload
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Detail Modal *@
+@if (showDetailModal && selectedPackage != null)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        Package @selectedPackage.Version
+                        <span class="badge @GetStatusBadgeClass(selectedPackage.Status) ms-2">@selectedPackage.Status</span>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseModals" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Channel:</strong> @selectedPackage.Channel<br />
+                            <strong>Size:</strong> @FormatFileSize(selectedPackage.FileSize)<br />
+                            <strong>Downloads:</strong> @selectedPackage.DownloadCount
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Created:</strong> @selectedPackage.CreatedAt.ToString("g") by @selectedPackage.CreatedBy<br />
+                            <strong>Published:</strong> @(selectedPackage.PublishedAt?.ToString("g") ?? "—")<br />
+                            <strong>Checksum:</strong> <code class="code-sm">@selectedPackage.Checksum</code>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(selectedPackage.ReleaseNotes))
+                    {
+                        <div class="card mb-3">
+                            <div class="card-header"><strong>Release Notes</strong></div>
+                            <div class="card-body">
+                                <pre class="mb-0 pre-wrap">@selectedPackage.ReleaseNotes</pre>
+                            </div>
+                        </div>
+                    }
+
+                    @* Distribution Rules *@
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>Distribution Rules</strong>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="ToggleAddRule">
+                                <i class="bi bi-plus-lg"></i> Add Rule
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            @if (showAddRule)
+                            {
+                                <div class="row mb-3 g-2 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Rule Type</label>
+                                        <select @bind="newRuleType" class="form-select form-select-sm">
+                                            <option value="AllComputers">All Computers</option>
+                                            <option value="BySerialNumber">By Serial Number</option>
+                                            <option value="ByDepartment">By Department</option>
+                                            <option value="ByLocation">By Location</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <label class="form-label">Target Value</label>
+                                        <input type="text" @bind="newRuleTarget" class="form-control form-control-sm"
+                                               placeholder="Serial, department name, or location..." />
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-sm btn-primary" @onclick="AddRule">Add</button>
+                                        <button class="btn btn-sm btn-secondary" @onclick="ToggleAddRule">Cancel</button>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (selectedPackage.DistributionRules.Count == 0)
+                            {
+                                <p class="text-muted mb-0">
+                                    <i class="bi bi-globe me-1"></i>No rules — distributes to all computers.
+                                </p>
+                            }
+                            else
+                            {
+                                <table class="table table-sm mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Target</th>
+                                            <th>Added</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var rule in selectedPackage.DistributionRules)
+                                        {
+                                            <tr>
+                                                <td><span class="badge bg-secondary">@rule.RuleType</span></td>
+                                                <td>@rule.TargetValue</td>
+                                                <td><small>@rule.CreatedAt.ToString("MM/dd/yyyy")</small></td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-danger"
+                                                            @onclick="() => RemoveRule(rule.Id)"
+                                                            aria-label="Remove distribution rule">
+                                                        <i class="bi bi-x-lg"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModals">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PackageVersionDto>? packages;
+    private PackageDistributionSummaryDto? summary;
+    private PackageVersionDetailDto? selectedPackage;
+    private bool isLoading = true;
+    private bool showUploadModal;
+    private bool showDetailModal;
+    private bool isUploading;
+    private string? uploadError;
+
+    // Upload form
+    private IBrowserFile? selectedFile;
+    private string uploadVersion = "";
+    private string uploadReleaseNotes = "";
+    private string uploadChannel = "stable";
+    private string uploadMinVersion = "";
+    private bool uploadIsRequired;
+    private bool uploadIsBreaking;
+
+    // Distribution rule form
+    private bool showAddRule;
+    private string newRuleType = "AllComputers";
+    private string newRuleTarget = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        var packagesTask = PackageService.GetAllPackagesAsync();
+        var summaryTask = PackageService.GetDistributionSummaryAsync();
+        await Task.WhenAll(packagesTask, summaryTask);
+        packages = packagesTask.Result.Success ? packagesTask.Result.Data : null;
+        summary = summaryTask.Result.Success ? summaryTask.Result.Data : null;
+        isLoading = false;
+    }
+
+    private void ShowUploadModal()
+    {
+        selectedFile = null;
+        uploadVersion = "";
+        uploadReleaseNotes = "";
+        uploadChannel = "stable";
+        uploadMinVersion = "";
+        uploadIsRequired = false;
+        uploadIsBreaking = false;
+        uploadError = null;
+        showUploadModal = true;
+    }
+
+    private async Task ShowDetailModal(int id)
+    {
+        var result = await PackageService.GetPackageByIdAsync(id);
+        if (result.Success && result.Data != null)
+        {
+            selectedPackage = result.Data;
+            showDetailModal = true;
+        }
+    }
+
+    private void CloseModals()
+    {
+        showUploadModal = false;
+        showDetailModal = false;
+        showAddRule = false;
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+    }
+
+    private async Task UploadPackage()
+    {
+        if (selectedFile == null)
+        {
+            uploadError = "Please select a package file.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(uploadVersion))
+        {
+            uploadError = "Version is required.";
+            return;
+        }
+
+        isUploading = true;
+        uploadError = null;
+
+        try
+        {
+            // 500 MB max
+            using var stream = selectedFile.OpenReadStream(maxAllowedSize: 500_000_000);
+            var result = await PackageService.UploadPackageAsync(
+                stream, selectedFile.Name, uploadVersion,
+                uploadReleaseNotes, uploadIsRequired, uploadIsBreaking,
+                string.IsNullOrWhiteSpace(uploadMinVersion) ? null : uploadMinVersion,
+                uploadChannel);
+
+            if (result.Success)
+            {
+                showUploadModal = false;
+                await LoadData();
+            }
+            else
+            {
+                uploadError = result.ErrorMessage ?? "Upload failed. The version may already exist.";
+            }
+        }
+        catch (Exception ex)
+        {
+            uploadError = $"Upload error: {ex.Message}";
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task PublishPackage(int id)
+    {
+        if ((await PackageService.PublishPackageAsync(id)).Success)
+            await LoadData();
+    }
+
+    private async Task ActivatePackage(int id)
+    {
+        var version = packages?.FirstOrDefault(p => p.Id == id)?.Version ?? "this package";
+        if (!await JS.InvokeAsync<bool>("confirm", $"Activate version {version}? This will push this version to all targeted computers."))
+            return;
+
+        if ((await PackageService.ActivatePackageAsync(id)).Success)
+            await LoadData();
+    }
+
+    private async Task DeprecatePackage(int id)
+    {
+        var version = packages?.FirstOrDefault(p => p.Id == id)?.Version ?? "this package";
+        if (!await JS.InvokeAsync<bool>("confirm", $"Deprecate version {version}? This will prevent new installations of this version."))
+            return;
+
+        if ((await PackageService.DeprecatePackageAsync(id)).Success)
+            await LoadData();
+    }
+
+    private async Task RollbackToVersion(int id)
+    {
+        var version = packages?.FirstOrDefault(p => p.Id == id)?.Version ?? "this package";
+        if (!await JS.InvokeAsync<bool>("confirm", $"Roll back to version {version}? This will set this version as the active deployment target."))
+            return;
+
+        if ((await PackageService.RollbackToVersionAsync(id)).Success)
+            await LoadData();
+    }
+
+    private async Task DeletePackage(int id)
+    {
+        var version = packages?.FirstOrDefault(p => p.Id == id)?.Version ?? "this package";
+        if (!await JS.InvokeAsync<bool>("confirm", $"Permanently delete version {version}? This action cannot be undone."))
+            return;
+
+        if ((await PackageService.DeletePackageAsync(id)).Success)
+            await LoadData();
+    }
+
+    // Distribution rules
+    private void ToggleAddRule()
+    {
+        showAddRule = !showAddRule;
+        newRuleType = "AllComputers";
+        newRuleTarget = "";
+    }
+
+    private async Task AddRule()
+    {
+        if (selectedPackage == null) return;
+
+        var request = new AddDistributionRuleRequest
+        {
+            RuleType = newRuleType,
+            TargetValue = newRuleTarget
+        };
+
+        if ((await PackageService.AddDistributionRuleAsync(selectedPackage.Id, request)).Success)
+        {
+            // Refresh detail
+            var detailResult = await PackageService.GetPackageByIdAsync(selectedPackage.Id);
+            selectedPackage = detailResult.Success ? detailResult.Data : selectedPackage;
+            showAddRule = false;
+            await LoadData();
+        }
+    }
+
+    private async Task RemoveRule(int ruleId)
+    {
+        if (selectedPackage == null) return;
+
+        if ((await PackageService.RemoveDistributionRuleAsync(selectedPackage.Id, ruleId)).Success)
+        {
+            var detailResult = await PackageService.GetPackageByIdAsync(selectedPackage.Id);
+            selectedPackage = detailResult.Success ? detailResult.Data : selectedPackage;
+            await LoadData();
+        }
+    }
+
+    private static string GetStatusBadgeClass(string status) => status switch
+    {
+        "Draft" => "bg-secondary",
+        "Published" => "bg-primary",
+        "Active" => "bg-success",
+        "Deprecated" => "bg-warning text-dark",
+        "Archived" => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+}

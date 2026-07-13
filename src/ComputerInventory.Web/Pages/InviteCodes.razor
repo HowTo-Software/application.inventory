@@ -1,0 +1,212 @@
+@page "/invite-codes"
+@attribute [Authorize(Roles = "Admin")]
+@implements IDisposable
+@inject IInviteCodeService InviteCodeService
+@inject IJSRuntime JS
+
+<PageTitle>Invite Codes - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Invite Codes</h1>
+        <button class="btn btn-primary" @onclick="ShowCreateModal">
+            <i class="bi bi-plus-lg me-2"></i>Create Invite Code
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(lastCreatedCode))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Invite code created!</strong> Share this code with the user (it won't be shown again):
+            <div class="mt-2">
+                <code class="fs-4 user-select-all">@lastCreatedCode</code>
+                <button class="btn btn-sm btn-outline-success ms-2" @onclick="CopyCode" title="Copy to clipboard">
+                    <i class="bi bi-clipboard"></i>
+                </button>
+            </div>
+            <button type="button" class="btn-close" @onclick="() => lastCreatedCode = null" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (codes == null || !codes.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Users"
+                    Title="No invite codes"
+                    Description="Create invite codes to allow new users to register."
+                    ActionText="Create Invite Code"
+                    ActionIcon="bi-plus-lg"
+                    ActionClicked="ShowCreateModal" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Uses</th>
+                                <th>Expires</th>
+                                <th>Created</th>
+                                <th>Created By</th>
+                                <th>Note</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var invite in codes)
+                            {
+                                <tr class="@(invite.IsValid ? "" : "table-secondary")">
+                                    <td>
+                                        @if (invite.IsRevoked)
+                                        {
+                                            <span class="badge bg-danger">Revoked</span>
+                                        }
+                                        else if (invite.ExpiresAt <= DateTime.UtcNow)
+                                        {
+                                            <span class="badge bg-secondary">Expired</span>
+                                        }
+                                        else if (invite.UseCount >= invite.MaxUses)
+                                        {
+                                            <span class="badge bg-info">Fully Used</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-success">Active</span>
+                                        }
+                                    </td>
+                                    <td>@invite.UseCount / @invite.MaxUses</td>
+                                    <td>@invite.ExpiresAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                                    <td>@invite.CreatedAt.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                                    <td>@invite.CreatedBy</td>
+                                    <td>@(invite.Note ?? "—")</td>
+                                    <td>
+                                        @if (invite.IsValid)
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeCode(invite.Id)"
+                                                    title="Revoke this invite code">
+                                                <i class="bi bi-x-circle"></i>
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Invite Code</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm Model="newRequest" OnValidSubmit="CreateCode">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Max Uses</label>
+                            <InputNumber @bind-Value="newRequest!.MaxUses" class="form-control" min="1" max="100" />
+                            <small class="text-muted">How many times this code can be used (1 = single-use)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Expiration (hours)</label>
+                            <InputNumber @bind-Value="newRequest.ExpirationHours" class="form-control" min="1" max="720" />
+                            <small class="text-muted">Code will expire after this many hours</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Note (optional)</label>
+                            <InputText @bind-Value="newRequest.Note" class="form-control" placeholder="e.g. For new IT team members" />
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Create</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private CancellationTokenSource _cts = new();
+    private List<InviteCodeListItem>? codes;
+    private bool isLoading = true;
+    private bool showModal;
+    private CreateInviteCodeRequest? newRequest;
+    private string? lastCreatedCode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCodes();
+    }
+
+    private async Task LoadCodes()
+    {
+        isLoading = true;
+        var result = await InviteCodeService.GetAllAsync(_cts.Token);
+        codes = result.Success ? result.Data ?? new List<InviteCodeListItem>() : new List<InviteCodeListItem>();
+        isLoading = false;
+    }
+
+    private void ShowCreateModal()
+    {
+        newRequest = new CreateInviteCodeRequest { MaxUses = 1, ExpirationHours = 72 };
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        newRequest = null;
+    }
+
+    private async Task CreateCode()
+    {
+        if (newRequest == null) return;
+        var result = await InviteCodeService.CreateAsync(newRequest, _cts.Token);
+        if (result.Success && result.Data != null)
+        {
+            lastCreatedCode = result.Data.Code;
+        }
+        CloseModal();
+        await LoadCodes();
+    }
+
+    private async Task RevokeCode(int id)
+    {
+        await InviteCodeService.RevokeAsync(id, _cts.Token);
+        await LoadCodes();
+    }
+
+    private async Task CopyCode()
+    {
+        if (!string.IsNullOrEmpty(lastCreatedCode))
+        {
+            await JS.InvokeVoidAsync("copyToClipboard", lastCreatedCode);
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

@@ -1,0 +1,766 @@
+@page "/map"
+@attribute [Authorize]
+@inject IMapService MapService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Computer Map - Device Management</PageTitle>
+
+@* Leaflet CSS - must be loaded before JS *@
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
+      crossorigin="" />
+
+<style>
+    /* Ensure Leaflet map container has proper dimensions */
+    #map-container {
+        height: calc(100vh - 280px) !important;
+        min-height: 300px !important;
+        max-height: 800px !important;
+        width: 100% !important;
+        z-index: 1;
+        background-color: #e5e3df;
+    }
+    @@media (max-width: 991.98px) {
+        #map-container {
+            height: calc(100vh - 320px) !important;
+            min-height: 250px !important;
+            max-height: 500px !important;
+        }
+    }
+    @@media (max-width: 575.98px) {
+        #map-container {
+            height: 50vh !important;
+            min-height: 200px !important;
+        }
+    }
+    /* Fix Leaflet icon paths for Blazor */
+    .leaflet-default-icon-path {
+        background-image: url(https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png);
+    }
+    .custom-marker {
+        background: transparent;
+        border: none;
+    }
+</style>
+
+@* Toast notification *@
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="position-fixed top-0 end-0 p-3 toast-z">
+        <div class="toast show @toastClass text-white">
+            <div class="toast-body d-flex align-items-center justify-content-between">
+                <span>@toastMessage</span>
+                <button type="button" class="btn-close btn-close-white ms-2" @onclick="() => toastMessage = null" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <h1><i class="bi bi-geo-alt me-2"></i>Computer Map</h1>
+            @if (refreshInfo != null)
+            {
+                @if (refreshInfo.LastRefresh.HasValue)
+                {
+                    <small class="text-muted">
+                        <i class="bi bi-clock me-1"></i>Last updated @GetTimeAgo(refreshInfo.LastRefresh.Value)
+                    </small>
+                }
+                @if (refreshInfo.IsRefreshNeeded)
+                {
+                    <span class="badge bg-warning text-dark">
+                        <i class="bi bi-exclamation-triangle me-1"></i>Refresh recommended
+                    </span>
+                }
+            }
+        </div>
+        <div class="d-flex gap-2">
+            <AuthorizeView Roles="Admin,Technician">
+                <button class="btn btn-primary" @onclick="RefreshLocations" disabled="@isRefreshing">
+                    @if (isRefreshing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Refreshing...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-arrow-clockwise me-2"></i>
+                        <span>Refresh Locations</span>
+                    }
+                </button>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-lg-9">
+                <div class="card">
+                    <div class="card-body p-0">
+                        <div id="map-container"></div>
+                    </div>
+                    <div class="card-footer small text-muted">
+                        <i class="bi bi-map me-1"></i>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3">
+                @* Selected Computer Details Card *@
+                @if (selectedComputer != null)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0"><i class="bi bi-geo-alt-fill me-2"></i>@selectedComputer.Hostname</h6>
+                            <button type="button" class="btn-close btn-close-sm" @onclick="() => selectedComputer = null" aria-label="Close"></button>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">Location Source</label>
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="badge @(selectedComputer.LocationSource == "GPS" ? "bg-success" : "bg-info")">
+                                        <i class="bi @(selectedComputer.LocationSource == "GPS" ? "bi-crosshair" : "bi-globe") me-1"></i>
+                                        @selectedComputer.LocationSource
+                                    </span>
+                                    @if (selectedComputer.LocationSource == "GPS")
+                                    {
+                                        <small class="text-muted">(Exact)</small>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted">(Approximate)</small>
+                                    }
+                                </div>
+                                <AuthorizeView Roles="Admin,Technician">
+                                    <div class="btn-group btn-group-sm w-100" role="group">
+                                        <input type="radio" class="btn-check" name="locSource-@selectedComputer.ComputerId" id="locAuto-@selectedComputer.ComputerId"
+                                               checked="@(selectedComputer.PreferredLocationSource == "Auto")"
+                                               @onchange="@(() => SetLocationSource(selectedComputer, "Auto"))">
+                                        <label class="btn btn-outline-secondary" for="locAuto-@selectedComputer.ComputerId" title="Prefer GPS when available, fallback to IP">Auto</label>
+                                        
+                                        <input type="radio" class="btn-check" name="locSource-@selectedComputer.ComputerId" id="locGps-@selectedComputer.ComputerId"
+                                               checked="@(selectedComputer.PreferredLocationSource == "GPS")"
+                                               disabled="@(!selectedComputer.HasGpsLocation)"
+                                               @onchange="@(() => SetLocationSource(selectedComputer, "GPS"))">
+                                        <label class="btn btn-outline-success @(!selectedComputer.HasGpsLocation ? "disabled" : "")" for="locGps-@selectedComputer.ComputerId" 
+                                               title="@(selectedComputer.HasGpsLocation ? "Use exact GPS location" : "GPS not available")">
+                                            <i class="bi bi-crosshair me-1"></i>GPS
+                                        </label>
+                                        
+                                        <input type="radio" class="btn-check" name="locSource-@selectedComputer.ComputerId" id="locIp-@selectedComputer.ComputerId"
+                                               checked="@(selectedComputer.PreferredLocationSource == "IP")"
+                                               disabled="@(!selectedComputer.HasIpLocation)"
+                                               @onchange="@(() => SetLocationSource(selectedComputer, "IP"))">
+                                        <label class="btn btn-outline-info @(!selectedComputer.HasIpLocation ? "disabled" : "")" for="locIp-@selectedComputer.ComputerId"
+                                               title="@(selectedComputer.HasIpLocation ? "Use IP-based location" : "IP location not available")">
+                                            <i class="bi bi-globe me-1"></i>IP
+                                        </label>
+                                    </div>
+                                </AuthorizeView>
+                            </div>
+                            
+                            @* Location Details *@
+                            <div class="row small">
+                                @if (selectedComputer.HasGpsLocation)
+                                {
+                                    <div class="col-6 mb-2">
+                                        <div class="text-muted">GPS Location</div>
+                                        <div class="text-success">
+                                            <i class="bi bi-check-circle me-1"></i>Available
+                                        </div>
+                                        <div class="text-muted small">
+                                            @selectedComputer.GpsLatitude?.ToString("F4"), @selectedComputer.GpsLongitude?.ToString("F4")
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="col-6 mb-2">
+                                        <div class="text-muted">GPS Location</div>
+                                        <div class="text-secondary">
+                                            <i class="bi bi-x-circle me-1"></i>Not available
+                                        </div>
+                                    </div>
+                                }
+                                
+                                @if (selectedComputer.HasIpLocation)
+                                {
+                                    <div class="col-6 mb-2">
+                                        <div class="text-muted">IP Location</div>
+                                        <div class="text-info">
+                                            <i class="bi bi-check-circle me-1"></i>Available
+                                        </div>
+                                        <div class="text-muted small">
+                                            @selectedComputer.IpLatitude?.ToString("F4"), @selectedComputer.IpLongitude?.ToString("F4")
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="col-6 mb-2">
+                                        <div class="text-muted">IP Location</div>
+                                        <div class="text-secondary">
+                                            <i class="bi bi-x-circle me-1"></i>Not available
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                            
+                            @if (!string.IsNullOrEmpty(selectedComputer.City))
+                            {
+                                <div class="small text-muted">
+                                    <i class="bi bi-geo me-1"></i>@selectedComputer.City, @selectedComputer.Region, @selectedComputer.Country
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Computer Locations</h5>
+                    </div>
+                    <div class="card-body p-0" style="max-height: @(selectedComputer != null ? "calc(100vh - 600px)" : "calc(100vh - 420px)"); min-height: 120px; overflow-y: auto;">
+                        @if (!locations.Any())
+                        {
+                            <div class="p-3 text-center text-muted">
+                                <i class="bi bi-info-circle me-1"></i>No locations available
+                                <p class="small mt-2">Computers need public IP addresses to be mapped</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var loc in locations.Where(l => l.Latitude.HasValue && l.Longitude.HasValue))
+                                {
+                                    <button type="button" 
+                                            class="list-group-item list-group-item-action @(selectedComputer?.ComputerId == loc.ComputerId ? "active" : "")"
+                                            @onclick="() => SelectComputer(loc)">
+                                        <div class="d-flex w-100 justify-content-between align-items-start">
+                                            <div>
+                                                <div class="d-flex align-items-center">
+                                                    @if (loc.IsOnline)
+                                                    {
+                                                        <span class="badge bg-success me-2" title="Online">
+                                                            <i class="bi bi-circle-fill"></i>
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary me-2" title="Offline">
+                                                            <i class="bi bi-circle"></i>
+                                                        </span>
+                                                    }
+                                                    <strong>@loc.Hostname</strong>
+                                                    @* Location source indicator *@
+                                                    <span class="badge @(loc.LocationSource == "GPS" ? "bg-success" : "bg-info") ms-2 small" 
+                                                          title="@(loc.LocationSource == "GPS" ? "Exact GPS location" : "IP-based location")">
+                                                        <i class="bi @(loc.LocationSource == "GPS" ? "bi-crosshair" : "bi-globe")"></i>
+                                                    </span>
+                                                </div>
+                                                <small class="@(selectedComputer?.ComputerId == loc.ComputerId ? "text-white-50" : "text-muted")">
+                                                    @loc.City, @loc.Region, @loc.CountryCode
+                                                </small>
+                                            </div>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(loc.PublicIpAddress))
+                                        {
+                                            <small class="@(selectedComputer?.ComputerId == loc.ComputerId ? "text-white-50" : "text-muted")">
+                                                <i class="bi bi-globe me-1"></i>@loc.PublicIpAddress
+                                            </small>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="card-footer text-muted small">
+                        @locations.Count(l => l.Latitude.HasValue) of @locations.Count computers mapped
+                    </div>
+                </div>
+                
+                @* Stats Card *@
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Location Stats</h6>
+                    </div>
+                    <div class="card-body">
+                        @{
+                            var mappedLocations = locations.Where(l => l.Latitude.HasValue).ToList();
+                            var onlineCount = mappedLocations.Count(l => l.IsOnline);
+                            var countriesCount = mappedLocations.Select(l => l.Country).Distinct().Count();
+                        }
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <h4 class="mb-0">@mappedLocations.Count</h4>
+                                <small class="text-muted">Mapped</small>
+                            </div>
+                            <div class="col-4">
+                                <h4 class="mb-0 text-success">@onlineCount</h4>
+                                <small class="text-muted">Online</small>
+                            </div>
+                            <div class="col-4">
+                                <h4 class="mb-0">@countriesCount</h4>
+                                <small class="text-muted">Countries</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        @if (locations.Any(l => !l.Latitude.HasValue || !l.Longitude.HasValue))
+        {
+            var unmappedComputers = locations.Where(l => !l.Latitude.HasValue || !l.Longitude.HasValue).ToList();
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-exclamation-circle me-2"></i>
+                        Computers Without Location Data (@unmappedComputers.Count)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Hostname</th>
+                                    <th>Service Tag</th>
+                                    <th>Public IP</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var comp in unmappedComputers)
+                                {
+                                    <tr>
+                                        <td>
+                                            @if (comp.IsOnline)
+                                            {
+                                                <span class="badge bg-success">Online</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">Offline</span>
+                                            }
+                                        </td>
+                                        <td>@comp.Hostname</td>
+                                        <td>@comp.SerialNumber</td>
+                                        <td>@(comp.PublicIpAddress ?? "N/A")</td>
+                                        <td>
+                                            @if (string.IsNullOrEmpty(comp.PublicIpAddress))
+                                            {
+                                                <span class="text-muted">No public IP reported</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Geolocation lookup pending</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ComputerLocationDto> locations = new();
+    private MapRefreshInfo? refreshInfo;
+    private ComputerLocationDto? selectedComputer;
+    private bool isLoading = true;
+    private bool isRefreshing = false;
+    private string? toastMessage;
+    private string toastClass = "bg-success";
+    private System.Timers.Timer? autoRefreshTimer;
+    
+    // Auto-refresh interval: 6 hours
+    private const int AutoRefreshIntervalMs = 6 * 60 * 60 * 1000;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        SetupAutoRefresh();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitializeLeafletMap();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        
+        try
+        {
+            var locationsTask = MapService.GetLocationsAsync();
+            var refreshInfoTask = MapService.GetRefreshInfoAsync();
+            
+            await Task.WhenAll(locationsTask, refreshInfoTask);
+            
+            var locResult = locationsTask.Result;
+            var refResult = refreshInfoTask.Result;
+            
+            locations = locResult.Success ? locResult.Data ?? new() : new();
+            refreshInfo = refResult.Success ? refResult.Data : null;
+            
+            if (!locResult.Success)
+                ShowToast(locResult.ErrorMessage ?? "Error loading map data", false);
+        }
+        catch (Exception)
+        {
+            ShowToast("Error loading map data", false);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task InitializeLeafletMap()
+    {
+        try
+        {
+            // Give DOM time to render the container
+            await Task.Delay(100);
+            
+            // Initialize Leaflet map - L should already be loaded from index.html
+            await JS.InvokeVoidAsync("eval", @"
+                (function() {
+                    // Clean up any existing map instance first
+                    var container = document.getElementById('map-container');
+                    if (!container) {
+                        console.error('Map container not found');
+                        return;
+                    }
+                    
+                    // Clear the container's internal Leaflet reference if it exists
+                    if (container._leaflet_id) {
+                        if (window.computerMapLeaflet) {
+                            try { window.computerMapLeaflet.remove(); } catch(e) {}
+                        }
+                        container._leaflet_id = null;
+                        container.innerHTML = '';
+                    }
+                    
+                    window.computerMapLeaflet = null;
+                    window.computerMarkersLayer = null;
+                    
+                    // Ensure container has dimensions
+                    container.style.height = '600px';
+                    container.style.width = '100%';
+                    
+                    // Check if Leaflet is loaded
+                    if (typeof L === 'undefined') {
+                        console.error('Leaflet library not loaded!');
+                        return;
+                    }
+                    
+                    try {
+                        console.log('Initializing Leaflet map...');
+                        
+                        // Initialize the map centered on US
+                        window.computerMapLeaflet = L.map(container, {
+                            center: [39.8283, -98.5795],
+                            zoom: 4,
+                            zoomControl: true
+                        });
+                        
+                        // Add OpenStreetMap tile layer with explicit subdomains
+                        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            maxZoom: 19,
+                            attribution: '&copy; <a href=""https://www.openstreetmap.org/copyright"">OpenStreetMap</a> contributors'
+                        }).addTo(window.computerMapLeaflet);
+                        
+                        // Store markers layer group
+                        window.computerMarkersLayer = L.layerGroup().addTo(window.computerMapLeaflet);
+                        
+                        // Force a resize to ensure tiles load
+                        setTimeout(function() {
+                            if (window.computerMapLeaflet) {
+                                window.computerMapLeaflet.invalidateSize();
+                                console.log('Map invalidateSize called');
+                            }
+                        }, 200);
+                        
+                        console.log('Leaflet map initialized successfully');
+                    } catch (e) {
+                        console.error('Error initializing Leaflet map:', e);
+                    }
+                })();
+            ");
+            
+            // Wait for map to initialize
+            await Task.Delay(500);
+            
+            // Add markers
+            await UpdateMapMarkers();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error initializing Leaflet map: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateMapMarkers()
+    {
+        try
+        {
+            var mappedLocations = locations.Where(l => l.Latitude.HasValue && l.Longitude.HasValue).ToList();
+            
+            // Serialize location data
+            var markersJson = System.Text.Json.JsonSerializer.Serialize(mappedLocations.Select(l => new
+            {
+                lat = l.Latitude,
+                lng = l.Longitude,
+                hostname = l.Hostname,
+                isOnline = l.IsOnline,
+                city = l.City ?? "",
+                region = l.Region ?? "",
+                country = l.Country ?? "",
+                publicIp = l.PublicIpAddress ?? "",
+                locationSource = l.LocationSource,
+                isGps = l.LocationSource == "GPS"
+            }));
+            
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    if (!window.computerMapLeaflet || !window.computerMarkersLayer) return;
+                    
+                    // HTML-escape user-controlled values to prevent XSS
+                    function escapeHtml(str) {{
+                        if (!str) return '';
+                        var div = document.createElement('div');
+                        div.appendChild(document.createTextNode(str));
+                        return div.innerHTML;
+                    }}
+                    
+                    // Clear existing markers
+                    window.computerMarkersLayer.clearLayers();
+                    
+                    var locations = {markersJson};
+                    var bounds = [];
+                    
+                    locations.forEach(function(loc) {{
+                        // Create custom icon based on online status and location source
+                        var markerColor = loc.isOnline ? '#28a745' : '#6c757d';
+                        var borderColor = loc.isGps ? '#198754' : '#0dcaf0';  // Green border for GPS, Cyan for IP
+                        var markerHtml = '<div style=""background-color: ' + markerColor + '; width: 20px; height: 20px; border-radius: 50%; border: 3px solid ' + borderColor + '; box-shadow: 0 2px 5px rgba(0,0,0,0.3);""></div>';
+                        
+                        var customIcon = L.divIcon({{
+                            html: markerHtml,
+                            className: 'custom-marker',
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10],
+                            popupAnchor: [0, -10]
+                        }});
+                        
+                        var marker = L.marker([loc.lat, loc.lng], {{ icon: customIcon }});
+                        
+                        // Create popup content with location source badge
+                        var sourceBadge = loc.isGps 
+                            ? '<span style=""background-color: #198754; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px;""><i class=""bi bi-crosshair""></i> GPS (Exact)</span>'
+                            : '<span style=""background-color: #0dcaf0; color: black; padding: 2px 6px; border-radius: 4px; font-size: 11px;""><i class=""bi bi-globe""></i> IP (Approx)</span>';
+                        
+                        var popupContent = '<div style=""min-width: 200px;"">' +
+                            '<h6 style=""margin: 0 0 8px 0; color: #333;"">' + escapeHtml(loc.hostname) + ' ' + sourceBadge + '</h6>' +
+                            '<p style=""margin: 0 0 4px 0; font-size: 13px; color: #666;"">' +
+                            '<i class=""bi bi-geo-alt""></i> ' + escapeHtml(loc.city) + ', ' + escapeHtml(loc.region) + ', ' + escapeHtml(loc.country) + '</p>' +
+                            '<p style=""margin: 0 0 4px 0; font-size: 13px; color: #666;"">' +
+                            '<i class=""bi bi-globe""></i> ' + escapeHtml(loc.publicIp) + '</p>' +
+                            '<p style=""margin: 0; font-size: 13px;"">' +
+                            '<span style=""color: ' + (loc.isOnline ? '#28a745' : '#6c757d') + '; font-weight: 500;"">' +
+                            (loc.isOnline ? '● Online' : '○ Offline') + '</span></p>' +
+                            '</div>';
+                        
+                        marker.bindPopup(popupContent);
+                        window.computerMarkersLayer.addLayer(marker);
+                        bounds.push([loc.lat, loc.lng]);
+                    }});
+                    
+                    // Fit map to show all markers
+                    if (bounds.length > 0) {{
+                        window.computerMapLeaflet.fitBounds(bounds, {{ padding: [50, 50] }});
+                        if (bounds.length === 1) {{
+                            window.computerMapLeaflet.setZoom(12);
+                        }}
+                    }}
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating markers: {ex.Message}");
+        }
+    }
+    private async Task SelectComputer(ComputerLocationDto location)
+    {
+        selectedComputer = location;
+        
+        if (location.Latitude.HasValue && location.Longitude.HasValue)
+        {
+            try
+            {
+                var lat = location.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var lng = location.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                
+                await JS.InvokeVoidAsync("eval", $@"
+                    if (window.computerMapLeaflet) {{
+                        window.computerMapLeaflet.setView([{lat}, {lng}], 12);
+                        
+                        // Open the popup for this marker
+                        window.computerMarkersLayer.eachLayer(function(marker) {{
+                            var latlng = marker.getLatLng();
+                            if (Math.abs(latlng.lat - {lat}) < 0.0001 && Math.abs(latlng.lng - {lng}) < 0.0001) {{
+                                marker.openPopup();
+                            }}
+                        }});
+                    }}
+                ");
+            }
+            catch { }
+        }
+    }
+
+    private async Task RefreshLocations()
+    {
+        isRefreshing = true;
+        StateHasChanged();
+        
+        try
+        {
+            var result = await MapService.RefreshAllLocationsAsync();
+            
+            if (result.Success && result.Data != null)
+            {
+                ShowToast($"Refreshed {result.Data.SuccessfulLookups} locations. {result.Data.FailedLookups} failed, {result.Data.SkippedNoPublicIp} skipped.", result.Data.FailedLookups == 0);
+                
+                // Reload data
+                await LoadData();
+                await UpdateMapMarkers();
+            }
+            else
+            {
+                ShowToast(result.ErrorMessage ?? "Failed to refresh locations", false);
+            }
+        }
+        catch
+        {
+            ShowToast("Error refreshing locations", false);
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SetupAutoRefresh()
+    {
+        autoRefreshTimer = new System.Timers.Timer(AutoRefreshIntervalMs);
+        autoRefreshTimer.Elapsed += async (sender, e) =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshLocations();
+            });
+        };
+        autoRefreshTimer.AutoReset = true;
+        autoRefreshTimer.Enabled = true;
+    }
+
+    private async Task SetLocationSource(ComputerLocationDto computer, string source)
+    {
+        try
+        {
+            var result = await MapService.SetPreferredLocationSourceAsync(computer.ComputerId, source);
+            
+            if (result.Success)
+            {
+                // Update the local computer object
+                computer.PreferredLocationSource = source;
+                
+                // Reload data to get updated coordinates
+                await LoadData();
+                
+                // Update the selected computer reference
+                selectedComputer = locations.FirstOrDefault(l => l.ComputerId == computer.ComputerId);
+                
+                // Update map markers
+                await UpdateMapMarkers();
+                
+                ShowToast($"Location source set to {source} for {computer.Hostname}", true);
+            }
+            else
+            {
+                ShowToast(result.ErrorMessage ?? $"Failed to update location source for {computer.Hostname}", false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting location source: {ex.Message}");
+            ShowToast("Error updating location source", false);
+        }
+    }
+
+    private void ShowToast(string message, bool success = true)
+    {
+        toastMessage = message;
+        toastClass = success ? "bg-success" : "bg-danger";
+        StateHasChanged();
+        
+        // Auto-hide after 5 seconds
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            await InvokeAsync(() =>
+            {
+                if (toastMessage == message)
+                {
+                    toastMessage = null;
+                    StateHasChanged();
+                }
+            });
+        });
+    }
+
+    private string GetTimeAgo(DateTime dateTime)
+    {
+        var timeSpan = DateTime.UtcNow - dateTime;
+        
+        if (timeSpan.TotalMinutes < 1)
+            return "just now";
+        if (timeSpan.TotalMinutes < 60)
+            return $"{(int)timeSpan.TotalMinutes} min ago";
+        if (timeSpan.TotalHours < 24)
+            return $"{(int)timeSpan.TotalHours} hours ago";
+        
+        return $"{(int)timeSpan.TotalDays} days ago";
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        autoRefreshTimer?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <!-- MKS Logo SVG -->
+  <style>
+    .mks-red { fill: #C4374A; }
+    .mks-navy { fill: #1E3A5F; }
+    .mks-text { font-family: Georgia, serif; font-weight: bold; }
+    .subtitle-text { font-family: Arial, sans-serif; font-weight: normal; letter-spacing: 0.3em; }
+  </style>
+  
+  <!-- MKS Text -->
+  <text x="640" y="350" class="mks-red mks-text" font-size="280" text-anchor="middle">MKS</text>
+  
+  <!-- Pipe·Valves·Fittings -->
+  <text x="640" y="450" class="mks-navy subtitle-text" font-size="52" text-anchor="middle">Pipe·Valves·Fittings</text>
+</svg>

@@ -1,0 +1,265 @@
+@page "/profile"
+@attribute [Authorize]
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Profile - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <h1 class="mb-4">My Profile</h1>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (user != null)
+    {
+        <div class="row">
+            <div class="col-lg-6 mb-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-person me-2"></i>Account Information</h5>
+                        @if (!isEditingProfile)
+                        {
+                            <button class="btn btn-outline-primary btn-sm" @onclick="StartEditProfile">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </button>
+                        }
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrEmpty(profileMessage))
+                        {
+                            <div class="alert @(profileSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                                <i class="bi @(profileSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>@profileMessage
+                                <button type="button" class="btn-close" @onclick="() => profileMessage = null" aria-label="Dismiss"></button>
+                            </div>
+                        }
+                        <div class="mb-3 row">
+                            <label class="col-sm-4 col-form-label text-muted">Username</label>
+                            <div class="col-sm-8">
+                                <p class="form-control-plaintext">@user.Username</p>
+                            </div>
+                        </div>
+                        @if (isEditingProfile)
+                        {
+                            <EditForm Model="editProfileModel" OnValidSubmit="HandleUpdateProfile">
+                                <DataAnnotationsValidator />
+                                <div class="mb-3 row">
+                                    <label for="firstName" class="col-sm-4 col-form-label text-muted">First Name</label>
+                                    <div class="col-sm-8">
+                                        <InputText id="firstName" class="form-control" @bind-Value="editProfileModel.FirstName" />
+                                        <div role="alert"><ValidationMessage For="() => editProfileModel.FirstName" /></div>
+                                    </div>
+                                </div>
+                                <div class="mb-3 row">
+                                    <label for="lastName" class="col-sm-4 col-form-label text-muted">Last Name</label>
+                                    <div class="col-sm-8">
+                                        <InputText id="lastName" class="form-control" @bind-Value="editProfileModel.LastName" />
+                                        <div role="alert"><ValidationMessage For="() => editProfileModel.LastName" /></div>
+                                    </div>
+                                </div>
+                                <div class="mb-3 row">
+                                    <label for="email" class="col-sm-4 col-form-label text-muted">Email</label>
+                                    <div class="col-sm-8">
+                                        <InputText id="email" class="form-control" @bind-Value="editProfileModel.Email" />
+                                        <div role="alert"><ValidationMessage For="() => editProfileModel.Email" /></div>
+                                    </div>
+                                </div>
+                                <div class="mb-3 row">
+                                    <label class="col-sm-4 col-form-label text-muted">Role</label>
+                                    <div class="col-sm-8">
+                                        <p class="form-control-plaintext">
+                                            <span class="badge bg-primary">@user.Role</span>
+                                        </p>
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(user.Department))
+                                {
+                                    <div class="mb-3 row">
+                                        <label class="col-sm-4 col-form-label text-muted">Department</label>
+                                        <div class="col-sm-8">
+                                            <p class="form-control-plaintext">@user.Department</p>
+                                        </div>
+                                    </div>
+                                }
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-primary" disabled="@isSavingProfile">
+                                        @if (isSavingProfile)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        }
+                                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelEditProfile" disabled="@isSavingProfile">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </EditForm>
+                        }
+                        else
+                        {
+                        <div class="mb-3 row">
+                            <label class="col-sm-4 col-form-label text-muted">Full Name</label>
+                            <div class="col-sm-8">
+                                <p class="form-control-plaintext">@user.FullName</p>
+                            </div>
+                        </div>
+                        <div class="mb-3 row">
+                            <label class="col-sm-4 col-form-label text-muted">Email</label>
+                            <div class="col-sm-8">
+                                <p class="form-control-plaintext">@user.Email</p>
+                            </div>
+                        </div>
+                        <div class="mb-3 row">
+                            <label class="col-sm-4 col-form-label text-muted">Role</label>
+                            <div class="col-sm-8">
+                                <p class="form-control-plaintext">
+                                    <span class="badge bg-primary">@user.Role</span>
+                                </p>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(user.Department))
+                        {
+                            <div class="mb-3 row">
+                                <label class="col-sm-4 col-form-label text-muted">Department</label>
+                                <div class="col-sm-8">
+                                    <p class="form-control-plaintext">@user.Department</p>
+                                </div>
+                            </div>
+                        }
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-key me-2"></i>Change Password</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrEmpty(passwordMessage))
+                        {
+                            <div class="alert @(passwordSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                                <i class="bi @(passwordSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>@passwordMessage
+                                <button type="button" class="btn-close" @onclick="() => passwordMessage = null" aria-label="Dismiss"></button>
+                            </div>
+                        }
+                        <EditForm Model="changePasswordModel" OnValidSubmit="HandleChangePassword">
+                            <DataAnnotationsValidator />
+                            <div class="mb-3">
+                                <label for="currentPassword" class="form-label">Current Password</label>
+                                <InputText id="currentPassword" type="password" class="form-control" @bind-Value="changePasswordModel.CurrentPassword" />
+                                <div role="alert"><ValidationMessage For="() => changePasswordModel.CurrentPassword" /></div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="newPassword" class="form-label">New Password</label>
+                                <InputText id="newPassword" type="password" class="form-control" @bind-Value="changePasswordModel.NewPassword" />
+                                <div role="alert"><ValidationMessage For="() => changePasswordModel.NewPassword" /></div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="confirmPassword" class="form-label">Confirm New Password</label>
+                                <InputText id="confirmPassword" type="password" class="form-control" @bind-Value="changePasswordModel.ConfirmPassword" />
+                                <div role="alert"><ValidationMessage For="() => changePasswordModel.ConfirmPassword" /></div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" disabled="@isChangingPassword">
+                                @if (isChangingPassword)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                <i class="bi bi-check-lg me-1"></i>Change Password
+                            </button>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private UserDto? user;
+    private bool isLoading = true;
+    private bool isChangingPassword;
+    private string? passwordMessage;
+    private bool passwordSuccess;
+    private ChangePasswordRequest changePasswordModel = new();
+
+    private bool isEditingProfile;
+    private bool isSavingProfile;
+    private string? profileMessage;
+    private bool profileSuccess;
+    private UpdateProfileRequest editProfileModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await AuthService.GetProfileAsync();
+        isLoading = false;
+    }
+
+    private void StartEditProfile()
+    {
+        if (user == null) return;
+        editProfileModel = new UpdateProfileRequest
+        {
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            Email = user.Email
+        };
+        profileMessage = null;
+        isEditingProfile = true;
+    }
+
+    private void CancelEditProfile()
+    {
+        isEditingProfile = false;
+        profileMessage = null;
+    }
+
+    private async Task HandleUpdateProfile()
+    {
+        profileMessage = null;
+        isSavingProfile = true;
+
+        var result = await AuthService.UpdateProfileAsync(editProfileModel);
+
+        isSavingProfile = false;
+        profileSuccess = result.Success;
+        profileMessage = result.Message;
+
+        if (result.Success)
+        {
+            // Refresh profile data from server
+            user = await AuthService.GetProfileAsync();
+            isEditingProfile = false;
+        }
+    }
+
+    private async Task HandleChangePassword()
+    {
+        passwordMessage = null;
+
+        if (changePasswordModel.NewPassword != changePasswordModel.ConfirmPassword)
+        {
+            passwordMessage = "New password and confirmation do not match.";
+            passwordSuccess = false;
+            return;
+        }
+
+        isChangingPassword = true;
+        var result = await AuthService.ChangePasswordAsync(changePasswordModel);
+        isChangingPassword = false;
+
+        passwordSuccess = result.Success;
+        passwordMessage = result.Message;
+
+        if (result.Success)
+        {
+            changePasswordModel = new();
+        }
+    }
+}

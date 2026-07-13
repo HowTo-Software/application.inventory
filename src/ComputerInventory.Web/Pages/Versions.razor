@@ -1,0 +1,524 @@
+@page "/versions"
+@attribute [Authorize]
+@inject IVersionService VersionService
+@inject ILookupService LookupService
+@inject IJSRuntime JS
+
+<PageTitle>Version History - Device Management</PageTitle>
+
+@* Toast notification *@
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="position-fixed top-0 end-0 p-3 toast-z">
+        <div class="toast show @toastClass text-white">
+            <div class="toast-body d-flex align-items-center justify-content-between">
+                <span>@toastMessage</span>
+                <button type="button" class="btn-close btn-close-white ms-2" @onclick="() => toastMessage = null" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-clock-history me-2"></i>Version History</h1>
+        <AuthorizeView Roles="Admin">
+            <button class="btn btn-primary" @onclick="ShowAddModal">
+                <i class="bi bi-plus-lg me-2"></i>Add Version Entry
+            </button>
+        </AuthorizeView>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (versionHistory == null)
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-2"></i>Unable to load version history.
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <!-- Current Versions Summary -->
+            <div class="col-12 mb-4">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card bg-primary text-white h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0">
+                                        <i class="bi bi-server icon-lg"></i>
+                                    </div>
+                                    <div class="flex-grow-1 ms-3">
+                                        <h5 class="card-title mb-1">Server Version</h5>
+                                        <h2 class="mb-0">@versionHistory.CurrentServerVersion</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card bg-success text-white h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-shrink-0">
+                                        <i class="bi bi-pc-display icon-lg"></i>
+                                    </div>
+                                    <div class="flex-grow-1 ms-3">
+                                        <h5 class="card-title mb-1">Thin Client Version</h5>
+                                        <h2 class="mb-0">@versionHistory.CurrentThinClientVersion</h2>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Server Version History -->
+            <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="bi bi-server me-2"></i>Server Changelog</h5>
+                    </div>
+                    <div class="card-body p-0 scroll-xl">
+                        @if (!versionHistory.ServerHistory.Any())
+                        {
+                            <EmptyState Icon="EmptyState.EmptyStateIcon.Versions"
+                                        Title="No server history"
+                                        Description="Server version changes will be recorded here." />
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var version in versionHistory.ServerHistory)
+                                {
+                                    <div class="list-group-item @(version.IsCurrentVersion ? "bg-light" : "")">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="flex-grow-1">
+                                                <div class="d-flex align-items-center mb-1">
+                                                    <h6 class="mb-0 me-2">
+                                                        <i class="bi bi-tag me-1"></i>v@(version.Version)
+                                                    </h6>
+                                                    @if (version.IsCurrentVersion)
+                                                    {
+                                                        <span class="badge bg-primary">Current</span>
+                                                    }
+                                                </div>
+                                                <small class="text-muted d-block mb-2">
+                                                    <i class="bi bi-calendar me-1"></i>@version.ReleasedAt.ToString("MMM dd, yyyy HH:mm")
+                                                    @if (!string.IsNullOrEmpty(version.ReleasedBy))
+                                                    {
+                                                        <span class="ms-2"><i class="bi bi-person me-1"></i>@version.ReleasedBy</span>
+                                                    }
+                                                </small>
+                                                <div class="changelog-content">
+                                                    @((MarkupString)FormatChangeLog(version.ChangeLog))
+                                                </div>
+                                            </div>
+                                            <AuthorizeView Roles="Admin">
+                                                <div class="btn-group btn-group-sm ms-2">
+                                                    <button class="btn btn-outline-secondary" @onclick="() => EditVersion(version)" title="Edit" aria-label="Edit version">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-danger" @onclick="() => DeleteVersion(version)" title="Delete" aria-label="Delete version">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </AuthorizeView>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thin Client Version History -->
+            <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0"><i class="bi bi-pc-display me-2"></i>Thin Client Changelog</h5>
+                    </div>
+                    <div class="card-body p-0 scroll-xl">
+                        @if (!versionHistory.ThinClientHistory.Any())
+                        {
+                            <EmptyState Icon="EmptyState.EmptyStateIcon.Versions"
+                                        Title="No thin client history"
+                                        Description="Thin client version changes will be recorded here." />
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var version in versionHistory.ThinClientHistory)
+                                {
+                                    <div class="list-group-item @(version.IsCurrentVersion ? "bg-light" : "")">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="flex-grow-1">
+                                                <div class="d-flex align-items-center mb-1">
+                                                    <h6 class="mb-0 me-2">
+                                                        <i class="bi bi-tag me-1"></i>v@(version.Version)
+                                                    </h6>
+                                                    @if (version.IsCurrentVersion)
+                                                    {
+                                                        <span class="badge bg-success">Current</span>
+                                                    }
+                                                </div>
+                                                <small class="text-muted d-block mb-2">
+                                                    <i class="bi bi-calendar me-1"></i>@version.ReleasedAt.ToString("MMM dd, yyyy HH:mm")
+                                                    @if (!string.IsNullOrEmpty(version.ReleasedBy))
+                                                    {
+                                                        <span class="ms-2"><i class="bi bi-person me-1"></i>@version.ReleasedBy</span>
+                                                    }
+                                                    @if (version.FileSize.HasValue)
+                                                    {
+                                                        <span class="ms-2"><i class="bi bi-file-zip me-1"></i>@FormatFileSize(version.FileSize.Value)</span>
+                                                    }
+                                                </small>
+                                                <div class="changelog-content">
+                                                    @((MarkupString)FormatChangeLog(version.ChangeLog))
+                                                </div>
+                                            </div>
+                                            <AuthorizeView Roles="Admin">
+                                                <div class="btn-group btn-group-sm ms-2">
+                                                    <button class="btn btn-outline-secondary" @onclick="() => EditVersion(version)" title="Edit" aria-label="Edit version">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-danger" @onclick="() => DeleteVersion(version)" title="Delete" aria-label="Delete version">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </AuthorizeView>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (Math.Max(versionHistory.ServerTotalPages, versionHistory.ThinClientTotalPages) > 1)
+            {
+                var maxTotalPages = Math.Max(versionHistory.ServerTotalPages, versionHistory.ThinClientTotalPages);
+                <div class="col-12">
+                    <nav aria-label="Version history pagination">
+                        <div class="d-flex justify-content-center align-items-center gap-3">
+                            <small class="text-muted">
+                                Page @currentPage of @maxTotalPages
+                                (@versionHistory.ServerTotalCount server, @versionHistory.ThinClientTotalCount thin client entries)
+                            </small>
+                            <ul class="pagination pagination-sm mb-0">
+                                <li class="page-item @(currentPage <= 1 ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(currentPage <= 1)" aria-label="First page">
+                                        <i class="bi bi-chevron-double-left"></i>
+                                    </button>
+                                </li>
+                                <li class="page-item @(currentPage <= 1 ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage <= 1)" aria-label="Previous page">
+                                        <i class="bi bi-chevron-left"></i>
+                                    </button>
+                                </li>
+
+                                @foreach (var p in GetPageNumbers(maxTotalPages))
+                                {
+                                    <li class="page-item @(p == currentPage ? "active" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(p)">@p</button>
+                                    </li>
+                                }
+
+                                <li class="page-item @(currentPage >= maxTotalPages ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage >= maxTotalPages)" aria-label="Next page">
+                                        <i class="bi bi-chevron-right"></i>
+                                    </button>
+                                </li>
+                                <li class="page-item @(currentPage >= maxTotalPages ? "disabled" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(maxTotalPages)" disabled="@(currentPage >= maxTotalPages)" aria-label="Last page">
+                                        <i class="bi bi-chevron-double-right"></i>
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                    </nav>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Add/Edit Modal -->
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(isEditing ? "Edit Version Entry" : "Add Version Entry")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Version *</label>
+                            <input type="text" class="form-control" @bind="editingVersion.Version" 
+                                   placeholder="1.0.0.0" disabled="@isEditing" />
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Type *</label>
+                            <select class="form-select" @bind="editingVersion.Type" disabled="@isEditing">
+                                @foreach (var t in _versionTypes)
+                                {
+                                    <option value="@t.Name">@t.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Changelog *</label>
+                        <textarea class="form-control" rows="10" @bind="editingVersion.ChangeLog"
+                                  placeholder="Enter changelog (supports basic formatting with - for bullet points)"></textarea>
+                        <small class="text-muted">Use - at the start of lines for bullet points. Each line will be displayed separately.</small>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="isCurrentVersion" @bind="editingVersion.IsCurrentVersion" />
+                        <label class="form-check-label" for="isCurrentVersion">Mark as current version</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveVersion" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .changelog-content {
+        font-size: 0.9rem;
+        white-space: pre-wrap;
+    }
+    .changelog-content ul {
+        margin-bottom: 0;
+        padding-left: 1.2rem;
+    }
+</style>
+
+@code {
+    private VersionHistoryResponse? versionHistory;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isSaving = false;
+    private bool isEditing = false;
+    private int editingId = 0;
+    private EditVersionModel editingVersion = new();
+    private string? toastMessage;
+    private string toastClass = "bg-success";
+
+    // Pagination
+    private int currentPage = 1;
+    private const int pageSize = 20;
+
+    // Lookup data
+    private List<LookupItemDto> _versionTypes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _versionTypes = await LookupService.GetVersionTypesAsync();
+        await LoadVersionHistory();
+    }
+
+    private async Task LoadVersionHistory()
+    {
+        isLoading = true;
+        try
+        {
+            var result = await VersionService.GetVersionHistoryAsync(currentPage, pageSize);
+            versionHistory = result.Success ? result.Data : null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task GoToPage(int page)
+    {
+        currentPage = page;
+        await LoadVersionHistory();
+    }
+
+    private void ShowAddModal()
+    {
+        editingVersion = new EditVersionModel
+        {
+            Type = "Server",
+            IsCurrentVersion = true
+        };
+        isEditing = false;
+        editingId = 0;
+        showModal = true;
+    }
+
+    private void EditVersion(VersionHistoryItem version)
+    {
+        editingVersion = new EditVersionModel
+        {
+            Version = version.Version,
+            Type = version.Type,
+            ChangeLog = version.ChangeLog,
+            IsCurrentVersion = version.IsCurrentVersion
+        };
+        isEditing = true;
+        editingId = version.Id;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        editingVersion = new();
+        isEditing = false;
+        editingId = 0;
+    }
+
+    private async Task SaveVersion()
+    {
+        if (string.IsNullOrWhiteSpace(editingVersion.Version) || string.IsNullOrWhiteSpace(editingVersion.ChangeLog))
+        {
+            ShowToast("Please fill in all required fields", false);
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            ApiResult result;
+            if (isEditing)
+            {
+                result = await VersionService.UpdateVersionHistoryAsync(editingId, new UpdateVersionHistoryRequest
+                {
+                    ChangeLog = editingVersion.ChangeLog,
+                    IsCurrentVersion = editingVersion.IsCurrentVersion
+                });
+            }
+            else
+            {
+                result = await VersionService.AddVersionHistoryAsync(new CreateVersionHistoryRequest
+                {
+                    Version = editingVersion.Version,
+                    Type = editingVersion.Type,
+                    ChangeLog = editingVersion.ChangeLog,
+                    IsCurrentVersion = editingVersion.IsCurrentVersion
+                });
+            }
+
+            if (result.Success)
+            {
+                ShowToast(isEditing ? "Version updated successfully" : "Version added successfully", true);
+                CloseModal();
+                await LoadVersionHistory();
+            }
+            else
+            {
+                ShowToast(result.ErrorMessage ?? "Failed to save version", false);
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteVersion(VersionHistoryItem version)
+    {
+        var result = await VersionService.DeleteVersionHistoryAsync(version.Id);
+        if (result.Success)
+        {
+            ShowToast($"Version {version.Version} deleted", true);
+            await LoadVersionHistory();
+        }
+        else
+        {
+            ShowToast(result.ErrorMessage ?? "Failed to delete version", false);
+        }
+    }
+
+    private void ShowToast(string message, bool success)
+    {
+        toastClass = success ? "bg-success" : "bg-danger";
+        toastMessage = message;
+        StateHasChanged();
+        
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            await InvokeAsync(() =>
+            {
+                toastMessage = null;
+                StateHasChanged();
+            });
+        });
+    }
+
+    private string FormatChangeLog(string changeLog)
+    {
+        if (string.IsNullOrWhiteSpace(changeLog))
+            return "";
+
+        var lines = changeLog.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var bulletPoints = lines.Where(l => l.TrimStart().StartsWith("-") || l.TrimStart().StartsWith("•")).ToList();
+        
+        if (bulletPoints.Any())
+        {
+            var items = bulletPoints.Select(l => $"<li>{System.Web.HttpUtility.HtmlEncode(l.TrimStart('-', '•', ' '))}</li>");
+            return $"<ul>{string.Join("", items)}</ul>";
+        }
+        
+        return System.Web.HttpUtility.HtmlEncode(changeLog).Replace("\n", "<br/>");
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private class EditVersionModel
+    {
+        public string Version { get; set; } = string.Empty;
+        public string Type { get; set; } = "Server";
+        public string ChangeLog { get; set; } = string.Empty;
+        public bool IsCurrentVersion { get; set; }
+    }
+
+    private IEnumerable<int> GetPageNumbers(int totalPages)
+    {
+        const int maxVisible = 7;
+        int start = Math.Max(1, currentPage - maxVisible / 2);
+        int end = Math.Min(totalPages, start + maxVisible - 1);
+        start = Math.Max(1, end - maxVisible + 1);
+        return Enumerable.Range(start, end - start + 1);
+    }
+}

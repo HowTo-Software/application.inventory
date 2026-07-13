@@ -1,0 +1,297 @@
+@page "/departments"
+@attribute [Authorize(Roles = "Admin")]
+@inject IDepartmentService DepartmentService
+
+<PageTitle>Departments - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-diagram-3 me-2"></i>Departments</h1>
+        <button class="btn btn-primary" @onclick="ShowAddModal">
+            <i class="bi bi-plus-lg me-2"></i>Add Department
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null" aria-label="Dismiss"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle me-2"></i>@successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null" aria-label="Dismiss"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (departments == null || !departments.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Departments"
+                    Title="No departments yet"
+                    Description="Create your first department to organize computers by team or function."
+                    ActionText="Add Department"
+                    ActionIcon="bi-plus-lg"
+                    ActionClicked="ShowAddModal" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Assigned To</th>
+                                <th class="col-w-150">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var dept in departments)
+                            {
+                                <tr>
+                                    <td>@dept.Name</td>
+                                    <td>
+                                        @if (dept.UsageCount > 0)
+                                        {
+                                            <span class="badge bg-info">@dept.UsageCount item(s)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">None</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => ShowEditModal(dept)" title="Edit" aria-label="Edit department">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(dept)" title="Delete"
+                                                disabled="@(dept.UsageCount > 0)" aria-label="Delete department">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@* Add/Edit Modal *@
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(isEditing ? "Edit Department" : "Add Department")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm @key="formModel" Model="formModel" OnValidSubmit="SaveDepartment">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Department Name *</label>
+                            <InputText @bind-Value="formModel!.Name" class="form-control" />
+                            <div role="alert"><ValidationMessage For="@(() => formModel.Name)" /></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                            @if (isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            @(isEditing ? "Update" : "Create")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (showDeleteModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteModal = false" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete department <strong>@deletingDepartment?.Name</strong>?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showDeleteModal = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteDepartment" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DepartmentItemDto>? departments;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool showDeleteModal = false;
+    private bool isEditing = false;
+    private bool isSaving = false;
+    private int? editingId;
+    private DepartmentFormModel? formModel;
+    private DepartmentItemDto? deletingDepartment;
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDepartments();
+    }
+
+    private async Task LoadDepartments()
+    {
+        isLoading = true;
+        var result = await DepartmentService.GetAllAsync();
+        departments = result.Success ? result.Data ?? new List<DepartmentItemDto>() : new List<DepartmentItemDto>();
+        if (!result.Success)
+            errorMessage = result.ErrorMessage;
+        isLoading = false;
+    }
+
+    private void ShowAddModal()
+    {
+        isEditing = false;
+        editingId = null;
+        formModel = new DepartmentFormModel();
+        errorMessage = null;
+        successMessage = null;
+        showModal = true;
+    }
+
+    private void ShowEditModal(DepartmentItemDto dept)
+    {
+        isEditing = true;
+        editingId = dept.Id;
+        formModel = new DepartmentFormModel { Name = dept.Name };
+        errorMessage = null;
+        successMessage = null;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        formModel = null;
+        editingId = null;
+    }
+
+    private async Task SaveDepartment()
+    {
+        if (formModel == null) return;
+        isSaving = true;
+        errorMessage = null;
+
+        try
+        {
+            if (isEditing && editingId.HasValue)
+            {
+                var result = await DepartmentService.UpdateAsync(editingId.Value, formModel.Name);
+                if (result.Success)
+                {
+                    successMessage = $"Department '{formModel.Name}' updated successfully";
+                    CloseModal();
+                    await LoadDepartments();
+                }
+                else
+                {
+                    errorMessage = result.ErrorMessage ?? "Failed to update department. The name may already exist.";
+                }
+            }
+            else
+            {
+                var result = await DepartmentService.CreateAsync(formModel.Name);
+                if (result.Success && result.Data != null)
+                {
+                    successMessage = $"Department '{result.Data.Name}' created successfully";
+                    CloseModal();
+                    await LoadDepartments();
+                }
+                else
+                {
+                    errorMessage = result.ErrorMessage ?? "Failed to create department. The name may already exist.";
+                }
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ConfirmDelete(DepartmentItemDto dept)
+    {
+        deletingDepartment = dept;
+        errorMessage = null;
+        successMessage = null;
+        showDeleteModal = true;
+    }
+
+    private async Task DeleteDepartment()
+    {
+        if (deletingDepartment == null) return;
+        isSaving = true;
+
+        try
+        {
+            var result = await DepartmentService.DeleteAsync(deletingDepartment.Id);
+            if (result.Success)
+            {
+                successMessage = $"Department '{deletingDepartment.Name}' deleted successfully";
+                showDeleteModal = false;
+                deletingDepartment = null;
+                await LoadDepartments();
+            }
+            else
+            {
+                showDeleteModal = false;
+                errorMessage = result.ErrorMessage ?? "Failed to delete department";
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private class DepartmentFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Department name is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 1, ErrorMessage = "Name must be between 1 and 100 characters")]
+        public string Name { get; set; } = string.Empty;
+    }
+}

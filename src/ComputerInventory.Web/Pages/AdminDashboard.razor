@@ -1,0 +1,479 @@
+@page "/admin"
+@attribute [Authorize(Roles = "Admin")]
+@inject IDashboardService DashboardService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>Admin Dashboard - Device Management</PageTitle>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = null" aria-label="Dismiss"></button>
+    </div>
+}
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <h1><i class="bi bi-shield-lock me-2"></i>Admin Dashboard</h1>
+            @if (lastRefresh.HasValue)
+            {
+                <small class="text-muted">
+                    <i class="bi bi-clock me-1"></i>Updated @GetTimeAgo(lastRefresh.Value)
+                    <button class="btn btn-link btn-sm p-0 ms-1" @onclick="RefreshAsync" disabled="@isLoading" aria-label="Refresh dashboard">
+                        <i class="bi bi-arrow-clockwise @(isLoading ? "spin" : "")"></i>
+                    </button>
+                </small>
+            }
+        </div>
+        @if (dashboard != null)
+        {
+            <span class="badge @GetServerStatusBadge(dashboard.ServerStatus) fs-6">
+                <i class="bi bi-circle-fill me-1"></i>@dashboard.ServerStatus
+            </span>
+        }
+    </div>
+
+    @if (isLoading && dashboard == null)
+    {
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (dashboard != null)
+    {
+        @* Warnings *@
+        @if (dashboard.Warnings.Any())
+        {
+            <div class="alert alert-warning mb-4">
+                <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-2"></i>Warnings</h6>
+                <ul class="mb-0">
+                    @foreach (var warning in dashboard.Warnings)
+                    {
+                        <li>@warning</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @* Inventory Summary Cards *@
+        <div class="row g-3 mb-4">
+            <div class="col-xl-3 col-md-6">
+                <div class="card bg-primary text-white h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="card-subtitle mb-2 text-white-50">Total Computers</h6>
+                                <h2 class="mb-0">@dashboard.TotalComputers</h2>
+                            </div>
+                            <i class="bi bi-pc-display fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0">
+                        <a href="/computers" class="text-white text-decoration-none small">
+                            View All <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="card bg-success text-white h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="card-subtitle mb-2 text-white-50">Online</h6>
+                                <h2 class="mb-0">@dashboard.OnlineComputers</h2>
+                            </div>
+                            <i class="bi bi-wifi fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="card bg-secondary text-white h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="card-subtitle mb-2 text-white-50">Offline</h6>
+                                <h2 class="mb-0">@dashboard.OfflineComputers</h2>
+                            </div>
+                            <i class="bi bi-wifi-off fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="card bg-info text-white h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="card-subtitle mb-2 text-white-50">Agents Installed</h6>
+                                <h2 class="mb-0">@dashboard.AgentsInstalled</h2>
+                            </div>
+                            <i class="bi bi-cpu fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            @* Status Breakdown *@
+            <div class="col-xl-4 col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Status Breakdown</h6>
+                    </div>
+                    <div class="card-body">
+                        @if (dashboard.StatusCounts.Any())
+                        {
+                            @foreach (var status in dashboard.StatusCounts.OrderByDescending(s => s.Value))
+                            {
+                                var pct = dashboard.TotalComputers > 0
+                                    ? (int)Math.Round(100.0 * status.Value / dashboard.TotalComputers)
+                                    : 0;
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between mb-1">
+                                        <span>@FormatStatusName(status.Key)</span>
+                                        <span class="text-muted">@status.Value</span>
+                                    </div>
+                                    <div class="progress progress-sm">
+                                        <div class="progress-bar @GetStatusBarColor(status.Key)" role="progressbar"
+                                             style="width: @(pct)%"
+                                             aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100"></div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <p class="text-muted mb-0">No data available</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* Agent Update Health *@
+            <div class="col-xl-4 col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>Agent Updates</h6>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrEmpty(dashboard.LatestAgentVersion))
+                        {
+                            <p class="mb-3">
+                                <span class="text-muted">Latest Version:</span>
+                                <span class="badge bg-primary ms-2">@dashboard.LatestAgentVersion</span>
+                            </p>
+                        }
+                        <div class="d-flex flex-column gap-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-check-circle text-success me-2"></i>On Latest</span>
+                                <span class="badge bg-success">@dashboard.AgentsOnLatestVersion</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-exclamation-circle text-warning me-2"></i>Older Version</span>
+                                <span class="badge bg-warning text-dark">@dashboard.AgentsOnOlderVersion</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-hourglass-split text-info me-2"></i>Pending Update</span>
+                                <span class="badge bg-info">@dashboard.AgentsPendingUpdate</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-arrow-repeat text-primary me-2"></i>Updating Now</span>
+                                <span class="badge bg-primary">@dashboard.AgentsUpdating</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-x-circle text-danger me-2"></i>Failed</span>
+                                <span class="badge bg-danger">@dashboard.AgentsFailedUpdate</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* Maintenance Summary *@
+            <div class="col-xl-4 col-md-12">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-tools me-2"></i>Maintenance</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-calendar-event text-warning me-2"></i>Scheduled</span>
+                                <span class="badge bg-warning text-dark fs-6">@dashboard.ScheduledMaintenance</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-clock-history text-info me-2"></i>Open Records</span>
+                                <span class="badge bg-info fs-6">@dashboard.OpenMaintenanceRecords</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-check2-all text-success me-2"></i>Completed This Month</span>
+                                <span class="badge bg-success fs-6">@dashboard.CompletedMaintenanceThisMonth</span>
+                            </div>
+                        </div>
+                        <hr />
+                        <a href="/maintenance" class="btn btn-outline-secondary btn-sm w-100">
+                            <i class="bi bi-tools me-1"></i>View Maintenance
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* System Health & Environment *@
+        <div class="row g-3 mb-4">
+            @* Health Checks *@
+            <div class="col-xl-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-heart-pulse me-2"></i>Health Checks</h6>
+                        <span class="text-muted small">@(dashboard.HealthCheckDurationMs.ToString("F1")) ms</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Check</th>
+                                        <th>Status</th>
+                                        <th>Duration</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var check in dashboard.HealthChecks)
+                                    {
+                                        <tr>
+                                            <td>@check.Name</td>
+                                            <td>
+                                                <span class="badge @GetHealthBadge(check.Status)">
+                                                    @check.Status
+                                                </span>
+                                            </td>
+                                            <td class="text-muted">@(check.DurationMs.ToString("F1")) ms</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* Server Info *@
+            <div class="col-xl-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-server me-2"></i>Server Information</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="d-flex flex-column gap-2">
+                                    <div>
+                                        <small class="text-muted d-block">Server Version</small>
+                                        <strong>@dashboard.ServerVersion</strong>
+                                    </div>
+                                    <div>
+                                        <small class="text-muted d-block">Uptime</small>
+                                        <strong>@dashboard.Uptime</strong>
+                                    </div>
+                                    @if (dashboard.Environment != null)
+                                    {
+                                        <div>
+                                            <small class="text-muted d-block">Machine</small>
+                                            <strong>@dashboard.Environment.MachineName</strong>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted d-block">Processors</small>
+                                            <strong>@dashboard.Environment.ProcessorCount cores</strong>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                @if (dashboard.Environment != null)
+                                {
+                                    <div class="d-flex flex-column gap-2">
+                                        <div>
+                                            <small class="text-muted d-block">OS</small>
+                                            <strong>@dashboard.Environment.OsVersion</strong>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted d-block">.NET Runtime</small>
+                                            <strong>@dashboard.Environment.RuntimeVersion</strong>
+                                        </div>
+                                        <div>
+                                            <small class="text-muted d-block">Architecture</small>
+                                            <strong>@(dashboard.Environment.Is64BitProcess ? "64-bit" : "32-bit")</strong>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        @if (dashboard.CacheStats != null)
+                        {
+                            <hr />
+                            <h6 class="text-muted mb-2">Cache Performance</h6>
+                            <div class="row g-2">
+                                <div class="col-3 text-center">
+                                    <div class="small text-muted">Entries</div>
+                                    <strong>@dashboard.CacheStats.EntryCount</strong>
+                                </div>
+                                <div class="col-3 text-center">
+                                    <div class="small text-muted">Hits</div>
+                                    <strong>@dashboard.CacheStats.Hits</strong>
+                                </div>
+                                <div class="col-3 text-center">
+                                    <div class="small text-muted">Misses</div>
+                                    <strong>@dashboard.CacheStats.Misses</strong>
+                                </div>
+                                <div class="col-3 text-center">
+                                    <div class="small text-muted">Hit Rate</div>
+                                    <strong>@(dashboard.CacheStats.HitRate.ToString("P0"))</strong>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Recent Activity *@
+        @if (dashboard.RecentActivity.Any())
+        {
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recent Activity</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Type</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var activity in dashboard.RecentActivity)
+                                {
+                                    <tr>
+                                        <td class="text-nowrap">@GetTimeAgo(activity.Timestamp)</td>
+                                        <td>
+                                            <span class="badge @GetActivityBadge(activity.Type)">@activity.Type</span>
+                                        </td>
+                                        <td>@activity.Description</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private DashboardDto? dashboard;
+    private string? errorMessage;
+    private bool isLoading;
+    private DateTime? lastRefresh;
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        // Auto-refresh every 30 seconds
+        refreshTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshAsync();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task RefreshAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        var result = await DashboardService.GetDashboardAsync();
+
+        if (result.Success && result.Data != null)
+        {
+            dashboard = result.Data;
+            errorMessage = null;
+            lastRefresh = DateTime.UtcNow;
+        }
+        else
+        {
+            errorMessage = result.ErrorMessage ?? "Failed to load dashboard data";
+        }
+
+        isLoading = false;
+    }
+
+    private static string GetTimeAgo(DateTime time)
+    {
+        var span = DateTime.UtcNow - time;
+        if (span.TotalSeconds < 0) span = TimeSpan.Zero;
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+
+    private static string GetServerStatusBadge(string status) => status switch
+    {
+        "Healthy" => "bg-success",
+        "Degraded" => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
+
+    private static string GetHealthBadge(string status) => status switch
+    {
+        "Healthy" => "bg-success",
+        "Degraded" => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
+
+    private static string GetStatusBarColor(string status) => status switch
+    {
+        "Unassigned" => "bg-success",
+        "Assigned" => "bg-warning",
+        "InMaintenance" => "bg-danger",
+        "Retired" => "bg-secondary",
+        "Disposed" => "bg-dark",
+        _ => "bg-info"
+    };
+
+    private static string FormatStatusName(string status) => status switch
+    {
+        "InMaintenance" => "In Maintenance",
+        _ => status
+    };
+
+    private static string GetActivityBadge(string type) => type switch
+    {
+        "Heartbeat" => "bg-success",
+        "StatusChange" => "bg-info",
+        _ => "bg-secondary"
+    };
+
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
+    }
+}

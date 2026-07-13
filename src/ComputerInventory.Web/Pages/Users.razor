@@ -1,0 +1,673 @@
+@page "/users"
+@attribute [Authorize(Roles = "Admin")]
+@implements IDisposable
+@inject IUserService UserService
+@inject ILookupService LookupService
+
+<PageTitle>Users - Device Management</PageTitle>
+
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="position-fixed top-0 end-0 p-3 toast-z">
+        <div class="toast show @toastClass text-white">
+            <div class="toast-body d-flex align-items-center justify-content-between">
+                <span>@toastMessage</span>
+                <button type="button" class="btn-close btn-close-white ms-2" @onclick="() => toastMessage = null" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Users</h1>
+        <div class="d-flex align-items-center gap-2">
+            <div class="input-group" style="width: 280px;">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" placeholder="Search users..." @bind="_searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+                @if (!string.IsNullOrWhiteSpace(_searchTerm))
+                {
+                    <button class="btn btn-outline-secondary" @onclick="ClearSearch" aria-label="Clear search">
+                        <i class="bi bi-x"></i>
+                    </button>
+                }
+            </div>
+            <button class="btn btn-primary" @onclick="ShowAddModal">
+                <i class="bi bi-plus-lg me-2"></i>Add User
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (users == null || !users.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Users"
+                    Title="No users found"
+                    Description="@(string.IsNullOrWhiteSpace(_searchTerm) ? "Add users to manage access to the inventory system." : "No users match your search criteria.")"
+                    ActionText="@(string.IsNullOrWhiteSpace(_searchTerm) ? "Add User" : null)"
+                    ActionIcon="bi-plus-lg"
+                    ActionClicked="ShowAddModal" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                @if (_totalCount > 0)
+                {
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small">Showing @((_currentPage - 1) * _pageSize + 1)–@(Math.Min(_currentPage * _pageSize, _totalCount)) of @_totalCount users</span>
+                    </div>
+                }
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th role="button" @onclick='() => ToggleSort("username")' style="cursor:pointer">
+                                    Username <i class="bi @GetSortIcon("username")"></i>
+                                </th>
+                                <th role="button" @onclick='() => ToggleSort("email")' style="cursor:pointer">
+                                    Email <i class="bi @GetSortIcon("email")"></i>
+                                </th>
+                                <th role="button" @onclick='() => ToggleSort("lastname")' style="cursor:pointer">
+                                    Full Name <i class="bi @GetSortIcon("lastname")"></i>
+                                </th>
+                                <th role="button" @onclick='() => ToggleSort("role")' style="cursor:pointer">
+                                    Role <i class="bi @GetSortIcon("role")"></i>
+                                </th>
+                                <th role="button" @onclick='() => ToggleSort("isactive")' style="cursor:pointer">
+                                    Status <i class="bi @GetSortIcon("isactive")"></i>
+                                </th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in users)
+                            {
+                                <tr>
+                                    <td>@user.Username</td>
+                                    <td>@user.Email</td>
+                                    <td>@user.FullName</td>
+                                    <td>
+                                        <span class="badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(user.IsActive ? "bg-success" : "bg-secondary")">
+                                            @(user.IsActive ? "Active" : "Inactive")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => ShowEditModal(user)"
+                                                aria-label="Edit user">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDeleteUser(user)"
+                                                disabled="@(user.Username == "admin")"
+                                                aria-label="Delete user">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        @if (_totalPages > 1)
+        {
+            <nav aria-label="User list pagination" class="mt-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="form-label small mb-0">Per page:</label>
+                        <select class="form-select form-select-sm" style="width: auto;" value="@_pageSize" @onchange="OnPageSizeChanged">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item @(_currentPage <= 1 ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(_currentPage <= 1)" aria-label="First page">
+                                <i class="bi bi-chevron-double-left"></i>
+                            </button>
+                        </li>
+                        <li class="page-item @(_currentPage <= 1 ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(_currentPage - 1)" disabled="@(_currentPage <= 1)" aria-label="Previous page">
+                                <i class="bi bi-chevron-left"></i>
+                            </button>
+                        </li>
+                        @foreach (var p in GetPageNumbers())
+                        {
+                            @if (p == -1)
+                            {
+                                <li class="page-item disabled"><span class="page-link">…</span></li>
+                            }
+                            else
+                            {
+                                <li class="page-item @(p == _currentPage ? "active" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(p)">@p</button>
+                                </li>
+                            }
+                        }
+                        <li class="page-item @(_currentPage >= _totalPages ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(_currentPage + 1)" disabled="@(_currentPage >= _totalPages)" aria-label="Next page">
+                                <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </li>
+                        <li class="page-item @(_currentPage >= _totalPages ? "disabled" : "")">
+                            <button class="page-link" @onclick="() => GoToPage(_totalPages)" disabled="@(_currentPage >= _totalPages)" aria-label="Last page">
+                                <i class="bi bi-chevron-double-right"></i>
+                            </button>
+                        </li>
+                    </ul>
+                    <small class="text-muted">
+                        Page @_currentPage of @_totalPages (@_totalCount total)
+                    </small>
+                </div>
+            </nav>
+        }
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add User</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm @key="newUser" Model="newUser" OnValidSubmit="SaveUser">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Username *</label>
+                            <InputText @bind-Value="newUser!.Username" class="form-control" />
+                            <div role="alert"><ValidationMessage For="@(() => newUser.Username)" /></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email *</label>
+                            <InputText @bind-Value="newUser.Email" class="form-control" type="email" />
+                            <div role="alert"><ValidationMessage For="@(() => newUser.Email)" /></div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password *</label>
+                            <InputText @bind-Value="newUser.Password" class="form-control" type="password" />
+                            <div role="alert"><ValidationMessage For="@(() => newUser.Password)" /></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">First Name</label>
+                                <InputText @bind-Value="newUser.FirstName" class="form-control" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Last Name</label>
+                                <InputText @bind-Value="newUser.LastName" class="form-control" />
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Role</label>
+                            <InputSelect @bind-Value="newUser.Role" class="form-select">
+                                @foreach (var r in _userRoles)
+                                {
+                                    <option value="@r.Name">@r.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDeleteConfirm)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="CancelDelete" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete user <strong>@_userToDelete?.Username</strong>? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteUser" disabled="@_isDeleting">
+                        @if (_isDeleting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        }
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showEditModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit User — @_editUsername</h5>
+                    <button type="button" class="btn-close" @onclick="CloseEditModal" aria-label="Close"></button>
+                </div>
+                @if (_isLoadingEdit)
+                {
+                    <div class="modal-body text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                }
+                else if (editUser != null)
+                {
+                    <EditForm @key="editUser" Model="editUser" OnValidSubmit="SaveEditUser">
+                        <DataAnnotationsValidator />
+                        <div class="modal-body">
+                            @if (_editErrorMessage != null)
+                            {
+                                <div class="alert alert-danger">@_editErrorMessage</div>
+                            }
+                            <div class="mb-3">
+                                <label class="form-label">Email *</label>
+                                <InputText @bind-Value="editUser.Email" class="form-control" type="email" />
+                                <div role="alert"><ValidationMessage For="@(() => editUser.Email)" /></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">First Name</label>
+                                    <InputText @bind-Value="editUser.FirstName" class="form-control" />
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Last Name</label>
+                                    <InputText @bind-Value="editUser.LastName" class="form-control" />
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Phone</label>
+                                <InputText @bind-Value="editUser.Phone" class="form-control" />
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Role</label>
+                                <InputSelect @bind-Value="editUser.Role" class="form-select">
+                                    @foreach (var r in _userRoles)
+                                    {
+                                        <option value="@r.Name">@r.Name</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div class="form-check mb-3">
+                                <InputCheckbox @bind-Value="editUser.IsActive" class="form-check-input" id="editIsActive" />
+                                <label class="form-check-label" for="editIsActive">Active</label>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseEditModal">Cancel</button>
+                            <button type="submit" class="btn btn-primary" disabled="@_isSavingEdit">
+                                @if (_isSavingEdit)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                }
+                                Save Changes
+                            </button>
+                        </div>
+                    </EditForm>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private CancellationTokenSource _cts = new();
+    private List<UserListDto>? users;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool showDeleteConfirm = false;
+    private bool _isDeleting = false;
+    private UserListDto? _userToDelete;
+    private CreateUserRequest? newUser;
+
+    // Edit modal state
+    private bool showEditModal = false;
+    private bool _isLoadingEdit = false;
+    private bool _isSavingEdit = false;
+    private string? _editUsername;
+    private string? _editErrorMessage;
+    private int _editUserId;
+    private UpdateUserRequest? editUser;
+
+    // Toast notification
+    private string? toastMessage;
+    private string toastClass = "bg-success";
+
+    // Lookup data
+    private List<LookupItemDto> _userRoles = new();
+    private List<LookupItemDto> _departments = new();
+
+    // Pagination & sorting
+    private int _currentPage = 1;
+    private int _pageSize = 25;
+    private int _totalCount = 0;
+    private int _totalPages = 0;
+    private string? _searchTerm;
+    private string? _sortColumn = "lastname";
+    private bool _sortAscending = true;
+    private System.Timers.Timer? _searchDebounce;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rolesTask = LookupService.GetUserRolesAsync(_cts.Token);
+        var departmentsTask = LookupService.GetDepartmentsAsync(_cts.Token);
+        await Task.WhenAll(rolesTask, departmentsTask);
+        _userRoles = rolesTask.Result;
+        _departments = departmentsTask.Result;
+
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        isLoading = true;
+        try
+        {
+            var result = await UserService.GetPagedAsync(
+                _currentPage, _pageSize,
+                string.IsNullOrWhiteSpace(_searchTerm) ? null : _searchTerm,
+                _sortColumn, _sortAscending ? "asc" : "desc",
+                _cts.Token);
+            if (result.Success && result.Data != null)
+            {
+                users = result.Data.Items;
+                _totalCount = result.Data.TotalCount;
+                _totalPages = result.Data.TotalPages;
+            }
+            else
+            {
+                users = new List<UserListDto>();
+                _totalCount = 0;
+                _totalPages = 0;
+            }
+        }
+        catch
+        {
+            users = new List<UserListDto>();
+            _totalCount = 0;
+            _totalPages = 0;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ShowAddModal()
+    {
+        newUser = new CreateUserRequest { Role = "Viewer" };
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        newUser = null;
+    }
+
+    private async Task SaveUser()
+    {
+        if (newUser == null) return;
+        var result = await UserService.CreateAsync(newUser, _cts.Token);
+        CloseModal();
+        if (result.Success)
+        {
+            ShowToast("User created successfully.", true);
+            await LoadUsers();
+        }
+        else
+        {
+            ShowToast(result.ErrorMessage ?? "Failed to create user. Please try again.", false);
+        }
+    }
+
+    private async Task ShowEditModal(UserListDto user)
+    {
+        _editUserId = user.Id;
+        _editUsername = user.Username;
+        _editErrorMessage = null;
+        showEditModal = true;
+        _isLoadingEdit = true;
+
+        var detail = await UserService.GetByIdAsync(user.Id, _cts.Token);
+        if (detail.Success && detail.Data != null)
+        {
+            editUser = new UpdateUserRequest
+            {
+                Email = detail.Data.Email,
+                FirstName = detail.Data.FirstName,
+                LastName = detail.Data.LastName,
+                Department = detail.Data.Department,
+                Phone = detail.Data.Phone,
+                Role = detail.Data.Role,
+                IsActive = detail.Data.IsActive
+            };
+        }
+        else
+        {
+            _editErrorMessage = detail.ErrorMessage ?? "Failed to load user details.";
+        }
+        _isLoadingEdit = false;
+    }
+
+    private void CloseEditModal()
+    {
+        showEditModal = false;
+        editUser = null;
+        _editUsername = null;
+        _editErrorMessage = null;
+    }
+
+    private async Task SaveEditUser()
+    {
+        if (editUser == null) return;
+        _isSavingEdit = true;
+        _editErrorMessage = null;
+        try
+        {
+            var result = await UserService.UpdateAsync(_editUserId, editUser, _cts.Token);
+            if (result.Success)
+            {
+                CloseEditModal();
+                ShowToast("User updated successfully.", true);
+                await LoadUsers();
+            }
+            else
+            {
+                _editErrorMessage = result.ErrorMessage ?? "Failed to save changes. Please try again.";
+            }
+        }
+        finally
+        {
+            _isSavingEdit = false;
+        }
+    }
+
+    private void ConfirmDeleteUser(UserListDto user)
+    {
+        _userToDelete = user;
+        showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        _userToDelete = null;
+        showDeleteConfirm = false;
+    }
+
+    private async Task DeleteUser()
+    {
+        if (_userToDelete == null) return;
+        _isDeleting = true;
+        var username = _userToDelete.Username;
+        try
+        {
+            var result = await UserService.DeleteAsync(_userToDelete.Id, _cts.Token);
+            if (result.Success)
+            {
+                ShowToast($"User '{username}' deleted.", true);
+                await LoadUsers();
+            }
+            else
+            {
+                ShowToast(result.ErrorMessage ?? $"Failed to delete user '{username}'.", false);
+            }
+        }
+        finally
+        {
+            _isDeleting = false;
+            showDeleteConfirm = false;
+            _userToDelete = null;
+        }
+    }
+
+    private string GetRoleBadgeClass(string role) => role switch
+    {
+        "Admin" => "bg-danger",
+        "Technician" => "bg-primary",
+        "Viewer" => "bg-info",
+        _ => "bg-secondary"
+    };
+
+    // --- Search ---
+
+    private void OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        _searchDebounce?.Stop();
+        _searchDebounce?.Dispose();
+        _searchDebounce = new System.Timers.Timer(300);
+        _searchDebounce.AutoReset = false;
+        _searchDebounce.Elapsed += async (_, _) =>
+        {
+            await InvokeAsync(async () =>
+            {
+                _currentPage = 1;
+                await LoadUsers();
+                StateHasChanged();
+            });
+        };
+        _searchDebounce.Start();
+    }
+
+    private async Task ClearSearch()
+    {
+        _searchTerm = null;
+        _currentPage = 1;
+        await LoadUsers();
+    }
+
+    // --- Sorting ---
+
+    private async Task ToggleSort(string column)
+    {
+        if (_sortColumn == column)
+        {
+            _sortAscending = !_sortAscending;
+        }
+        else
+        {
+            _sortColumn = column;
+            _sortAscending = true;
+        }
+        _currentPage = 1;
+        await LoadUsers();
+    }
+
+    private string GetSortIcon(string column)
+    {
+        if (_sortColumn != column) return "bi-arrow-down-up text-muted opacity-25";
+        return _sortAscending ? "bi-sort-up" : "bi-sort-down";
+    }
+
+    // --- Pagination ---
+
+    private async Task GoToPage(int page)
+    {
+        if (page < 1 || page > _totalPages || page == _currentPage) return;
+        _currentPage = page;
+        await LoadUsers();
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var newSize) && newSize > 0)
+        {
+            _pageSize = newSize;
+            _currentPage = 1;
+            await LoadUsers();
+        }
+    }
+
+    private List<int> GetPageNumbers()
+    {
+        var pages = new List<int>();
+        if (_totalPages <= 7)
+        {
+            for (var i = 1; i <= _totalPages; i++) pages.Add(i);
+            return pages;
+        }
+
+        pages.Add(1);
+        if (_currentPage > 3) pages.Add(-1);
+
+        var start = Math.Max(2, _currentPage - 1);
+        var end = Math.Min(_totalPages - 1, _currentPage + 1);
+        for (var i = start; i <= end; i++) pages.Add(i);
+
+        if (_currentPage < _totalPages - 2) pages.Add(-1);
+        pages.Add(_totalPages);
+
+        return pages;
+    }
+
+    private void ShowToast(string message, bool success)
+    {
+        toastClass = success ? "bg-success" : "bg-danger";
+        toastMessage = message;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            await InvokeAsync(() =>
+            {
+                toastMessage = null;
+                StateHasChanged();
+            });
+        });
+    }
+
+    public void Dispose()
+    {
+        _searchDebounce?.Dispose();
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

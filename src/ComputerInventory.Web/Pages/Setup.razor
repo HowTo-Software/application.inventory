@@ -1,0 +1,229 @@
+@page "/setup"
+@layout LoginLayout
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<div class="login-page d-flex justify-content-center align-items-center">
+    <div class="login-card setup-card card p-4">
+        <div class="text-center mb-4">
+            <i class="bi bi-shield-lock text-primary icon-lg"></i>
+            <h4 class="mt-2">Initial Setup</h4>
+            <p class="text-muted">Create your administrator account to get started</p>
+        </div>
+
+        @if (isCheckingStatus)
+        {
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Checking setup status...</span>
+                </div>
+                <p class="text-muted mt-2">Checking setup status...</p>
+            </div>
+        }
+        else if (!setupRequired)
+        {
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                Setup has already been completed. Redirecting to login...
+            </div>
+        }
+        else
+        {
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-circle me-2"></i>@errorMessage
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="alert alert-success" role="alert">
+                    <i class="bi bi-check-circle me-2"></i>@successMessage
+                </div>
+            }
+            else
+            {
+                <EditForm Model="model" OnValidSubmit="HandleSetup">
+                    <DataAnnotationsValidator />
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">First Name</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-person"></i></span>
+                                <InputText @bind-Value="model.FirstName" class="form-control" placeholder="First name" />
+                            </div>
+                            <div role="alert"><ValidationMessage For="@(() => model.FirstName)" /></div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Last Name</label>
+                            <InputText @bind-Value="model.LastName" class="form-control" placeholder="Last name" />
+                            <div role="alert"><ValidationMessage For="@(() => model.LastName)" /></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-at"></i></span>
+                            <InputText @bind-Value="model.Username" class="form-control" placeholder="Choose a username" />
+                        </div>
+                        <div role="alert"><ValidationMessage For="@(() => model.Username)" /></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                            <InputText @bind-Value="model.Email" class="form-control" placeholder="admin@example.com" />
+                        </div>
+                        <div role="alert"><ValidationMessage For="@(() => model.Email)" /></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <InputText @bind-Value="model.Password" type="password" class="form-control" placeholder="Minimum 8 characters" />
+                        </div>
+                        <div role="alert"><ValidationMessage For="@(() => model.Password)" /></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Confirm Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                            <InputText @bind-Value="model.ConfirmPassword" type="password" class="form-control" placeholder="Re-enter password" />
+                        </div>
+                        <div role="alert"><ValidationMessage For="@(() => model.ConfirmPassword)" /></div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        <i class="bi bi-shield-check me-2"></i>Create Administrator Account
+                    </button>
+                </EditForm>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private SetupModel model = new();
+    private string? errorMessage;
+    private string? successMessage;
+    private bool isSubmitting;
+    private bool isCheckingStatus = true;
+    private bool setupRequired = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetFromJsonAsync<SetupStatusResponse>("api/setup/status");
+            if (response != null && !response.SetupRequired)
+            {
+                setupRequired = false;
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/login");
+                return;
+            }
+        }
+        catch
+        {
+            // If we can't check status, show the form and let the server validate
+        }
+        finally
+        {
+            isCheckingStatus = false;
+        }
+    }
+
+    private async Task HandleSetup()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+
+        try
+        {
+            if (model.Password != model.ConfirmPassword)
+            {
+                errorMessage = "Passwords do not match.";
+                return;
+            }
+
+            var request = new
+            {
+                model.Username,
+                model.Email,
+                model.Password,
+                model.FirstName,
+                model.LastName
+            };
+
+            var response = await Http.PostAsJsonAsync("api/setup/initialize", request);
+            var result = await response.Content.ReadFromJsonAsync<SetupResult>();
+
+            if (result != null && result.Success)
+            {
+                successMessage = result.Message;
+                await Task.Delay(2000);
+                Navigation.NavigateTo("/login");
+            }
+            else
+            {
+                errorMessage = result?.Message ?? "Setup failed. Please try again.";
+            }
+        }
+        catch (Exception)
+        {
+            errorMessage = "An error occurred during setup. Please try again.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private class SetupStatusResponse
+    {
+        public bool SetupRequired { get; set; }
+    }
+
+    private class SetupResult
+    {
+        public bool Success { get; set; }
+        public string? Message { get; set; }
+    }
+
+    private class SetupModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "First name is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(100, ErrorMessage = "First name is too long")]
+        public string FirstName { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Last name is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(100, ErrorMessage = "Last name is too long")]
+        public string LastName { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Username is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(50, MinimumLength = 3, ErrorMessage = "Username must be 3-50 characters")]
+        public string Username { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Email is required")]
+        [System.ComponentModel.DataAnnotations.EmailAddress(ErrorMessage = "Invalid email address")]
+        public string Email { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Password is required")]
+        [System.ComponentModel.DataAnnotations.MinLength(8, ErrorMessage = "Password must be at least 8 characters")]
+        public string Password { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Please confirm your password")]
+        [System.ComponentModel.DataAnnotations.Compare(nameof(Password), ErrorMessage = "Passwords do not match")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,297 @@
+@page "/locations"
+@attribute [Authorize(Roles = "Admin")]
+@inject ILocationService LocationService
+
+<PageTitle>Locations - Device Management</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-geo-alt me-2"></i>Locations</h1>
+        <button class="btn btn-primary" @onclick="ShowAddModal">
+            <i class="bi bi-plus-lg me-2"></i>Add Location
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null" aria-label="Dismiss"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle me-2"></i>@successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null" aria-label="Dismiss"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (locations == null || !locations.Any())
+    {
+        <EmptyState Icon="EmptyState.EmptyStateIcon.Locations"
+                    Title="No locations yet"
+                    Description="Add a location to track where your computers are deployed."
+                    ActionText="Add Location"
+                    ActionIcon="bi-plus-lg"
+                    ActionClicked="ShowAddModal" />
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Assigned To</th>
+                                <th class="col-w-150">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var loc in locations)
+                            {
+                                <tr>
+                                    <td>@loc.Name</td>
+                                    <td>
+                                        @if (loc.UsageCount > 0)
+                                        {
+                                            <span class="badge bg-info">@loc.UsageCount computer(s)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">None</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => ShowEditModal(loc)" title="Edit" aria-label="Edit location">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(loc)" title="Delete"
+                                                disabled="@(loc.UsageCount > 0)" aria-label="Delete location">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@* Add/Edit Modal *@
+@if (showModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(isEditing ? "Edit Location" : "Add Location")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm @key="formModel" Model="formModel" OnValidSubmit="SaveLocation">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Location Name *</label>
+                            <InputText @bind-Value="formModel!.Name" class="form-control" />
+                            <div role="alert"><ValidationMessage For="@(() => formModel.Name)" /></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                            @if (isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            @(isEditing ? "Update" : "Create")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (showDeleteModal)
+{
+    <div class="modal fade show d-block modal-backdrop-dim" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => showDeleteModal = false" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete location <strong>@deletingLocation?.Name</strong>?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showDeleteModal = false">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteLocation" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<LocationItemDto>? locations;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool showDeleteModal = false;
+    private bool isEditing = false;
+    private bool isSaving = false;
+    private int? editingId;
+    private LocationFormModel? formModel;
+    private LocationItemDto? deletingLocation;
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLocations();
+    }
+
+    private async Task LoadLocations()
+    {
+        isLoading = true;
+        var result = await LocationService.GetAllAsync();
+        locations = result.Success ? result.Data ?? new List<LocationItemDto>() : new List<LocationItemDto>();
+        if (!result.Success)
+            errorMessage = result.ErrorMessage;
+        isLoading = false;
+    }
+
+    private void ShowAddModal()
+    {
+        isEditing = false;
+        editingId = null;
+        formModel = new LocationFormModel();
+        errorMessage = null;
+        successMessage = null;
+        showModal = true;
+    }
+
+    private void ShowEditModal(LocationItemDto loc)
+    {
+        isEditing = true;
+        editingId = loc.Id;
+        formModel = new LocationFormModel { Name = loc.Name };
+        errorMessage = null;
+        successMessage = null;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        formModel = null;
+        editingId = null;
+    }
+
+    private async Task SaveLocation()
+    {
+        if (formModel == null) return;
+        isSaving = true;
+        errorMessage = null;
+
+        try
+        {
+            if (isEditing && editingId.HasValue)
+            {
+                var result = await LocationService.UpdateAsync(editingId.Value, formModel.Name);
+                if (result.Success)
+                {
+                    successMessage = $"Location '{formModel.Name}' updated successfully";
+                    CloseModal();
+                    await LoadLocations();
+                }
+                else
+                {
+                    errorMessage = result.ErrorMessage ?? "Failed to update location. The name may already exist.";
+                }
+            }
+            else
+            {
+                var result = await LocationService.CreateAsync(formModel.Name);
+                if (result.Success && result.Data != null)
+                {
+                    successMessage = $"Location '{result.Data.Name}' created successfully";
+                    CloseModal();
+                    await LoadLocations();
+                }
+                else
+                {
+                    errorMessage = result.ErrorMessage ?? "Failed to create location. The name may already exist.";
+                }
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ConfirmDelete(LocationItemDto loc)
+    {
+        deletingLocation = loc;
+        errorMessage = null;
+        successMessage = null;
+        showDeleteModal = true;
+    }
+
+    private async Task DeleteLocation()
+    {
+        if (deletingLocation == null) return;
+        isSaving = true;
+
+        try
+        {
+            var result = await LocationService.DeleteAsync(deletingLocation.Id);
+            if (result.Success)
+            {
+                successMessage = $"Location '{deletingLocation.Name}' deleted successfully";
+                showDeleteModal = false;
+                deletingLocation = null;
+                await LoadLocations();
+            }
+            else
+            {
+                showDeleteModal = false;
+                errorMessage = result.ErrorMessage ?? "Failed to delete location";
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private class LocationFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Location name is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(200, MinimumLength = 1, ErrorMessage = "Name must be between 1 and 200 characters")]
+        public string Name { get; set; } = string.Empty;
+    }
+}

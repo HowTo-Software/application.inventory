@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: INV-MKS-Redis-Dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - inv-mks-redis-data-dev:/data
+    networks:
+      - INV-MKS-Default-Dev
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: INV-MKS-SQLServer-Dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=${SA_PASSWORD}
+      - MSSQL_PID=${MSSQL_PID:-Express}
+    ports:
+      - "14330:1433"
+    volumes:
+      - inv-mks-sqlserver-data-dev:/var/opt/mssql
+    networks:
+      - INV-MKS-Default-Dev
+
+volumes:
+  inv-mks-sqlserver-data-dev:
+  inv-mks-redis-data-dev:
+
+networks:
+  INV-MKS-Default-Dev:
+    driver: bridge
