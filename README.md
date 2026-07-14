@@ -1,6 +1,18 @@
 # Computer Inventory Management System
 
-A comprehensive computer inventory management system for tracking 200+ devices with multi-user support, built with .NET 8, SQL Server 2025, and Docker.
+> A comprehensive system for tracking 200+ computers and loaner devices with multi-user, role-based access — built with .NET 8, SQL Server 2025, Blazor WebAssembly, and Docker.
+
+[![CI](https://github.com/MKSWORKS/inventory/actions/workflows/ci.yml/badge.svg)](https://github.com/MKSWORKS/inventory/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
+[![SQL Server](https://img.shields.io/badge/SQL%20Server-2025-CC2927.svg)](https://www.microsoft.com/sql-server)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg)](https://www.docker.com/)
+
+---
+
+## Overview
+
+The Computer Inventory Management System provides end-to-end tracking of desktops, laptops, and loaner PCs across an organization. A central ASP.NET Core API backs a Blazor WebAssembly dashboard for staff, while lightweight Windows Service agents on loaner machines auto-register hardware, send periodic heartbeats, and handle check-in/check-out automatically.
 
 ## Architecture
 
@@ -239,6 +251,38 @@ dotnet ef database update
 dotnet test
 ```
 
+## Documentation
+
+Additional documentation lives in the [`docs/`](docs/) folder:
+
+| Document | Description |
+|----------|-------------|
+| [API Changelog](docs/API_CHANGELOG.md) | Notable API changes and version history |
+| [Database Schema (DDL)](docs/ComputerInventory_DDL.sql) | Full SQL Server schema definition |
+| [Stored Procedures](docs/STORED_PROCEDURES.md) | Reference for database stored procedures |
+| [Package Cleanup Strategy](docs/PACKAGE_CLEANUP_STRATEGY.md) | Update-package retention and cleanup design |
+| [Service Tracker Prebuilt Images](docs/SERVICE_TRACKER_PREBUILT_IMAGES_FEATURE.md) | Prebuilt image feature notes |
+| [Roadmap / TODO](docs/TODO.md) | Planned work and open items |
+
+Database migrations are tracked in [`server/migrations/`](server/migrations/).
+
+## Contributing
+
+Contributions are welcome! Before opening a pull request:
+
+1. Open an issue using the [issue templates](.github/ISSUE_TEMPLATE/) to discuss the change.
+2. Follow the checklist in the [pull request template](.github/pull_request_template.md).
+3. Ensure `dotnet build` and `dotnet test` pass locally.
+
+## Security
+
+This is proprietary software. Please report vulnerabilities privately — see the [Security Policy](.github/SECURITY.md). Never commit secrets such as `.env` files, connection strings, JWT signing keys, or `.pfx` / `.p12` certificates.
+
+## Changelog
+
+See the [API Changelog](docs/API_CHANGELOG.md) for a history of notable API changes.
+
 ## License
 
-MIT License
+This project is **proprietary software**. Copyright (c) 2026 MKS. All rights reserved.
+Unauthorized copying, distribution, or modification is prohibited without written permission. See [LICENSE](LICENSE) for full terms.
