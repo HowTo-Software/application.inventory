@@ -20,7 +20,7 @@ env:
 
 jobs:
   build:
-    name: Build & Test
+    name: Build & Unit Tests
     # Windows runner: the solution includes Windows-targeted projects
     # (ThinClient agent / Windows Service) alongside the Blazor WASM app.
     runs-on: windows-latest
@@ -43,5 +43,27 @@ jobs:
       - name: Build
         run: dotnet build ComputerInventory.sln --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test ComputerInventory.sln --configuration Release --no-build --verbosity normal
+      - name: Unit tests
+        # Integration tests need a Linux SQL Server container; they run in the integration-tests job below.
+        run: dotnet test ComputerInventory.sln --configuration Release --no-build --verbosity normal --filter 'FullyQualifiedName!~ComputerInventory.Tests.Integration'
+
+  integration-tests:
+    name: Integration Tests (SQL Server)
+    # Ubuntu runner: Docker can run the Linux mcr.microsoft.com/mssql/server image
+    # that Testcontainers boots for the integration suite.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Integration tests
+        # Builds only the test project and its cross-platform dependencies (Core/Infrastructure/Contracts).
+        run: dotnet test src/ComputerInventory.Tests/ComputerInventory.Tests.csproj --configuration Release --verbosity normal --filter 'FullyQualifiedName~ComputerInventory.Tests.Integration'

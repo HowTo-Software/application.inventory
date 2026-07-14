@@ -27,7 +27,7 @@ public class DatabaseFixture : IAsyncLifetime
         ConnectionString = masterCs.Replace("master", "device_management");
 
         // Apply DDL (creates DB + all tables + seed data)
-        var ddlPath = FindFile("Docs", "ComputerInventory_DDL.sql");
+        var ddlPath = FindFile("docs", "ComputerInventory_DDL.sql");
         var ddlSql = await File.ReadAllTextAsync(ddlPath);
         await ExecuteBatchedSqlAsync(masterCs, ddlSql);
 
