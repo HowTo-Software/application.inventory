@@ -60,3 +60,6 @@ docker-images/*.tar
 # ----- Logs -----
 *.log
 logs/
+
+# ----- Claude memory (local only) -----
+.github/claude-memory/

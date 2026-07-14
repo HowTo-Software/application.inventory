@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: Build & Test
+    # Windows runner: the solution includes Windows-targeted projects
+    # (ThinClient agent / Windows Service) alongside the Blazor WASM app.
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # global.json pins the 9.0 SDK; projects target net8.0, so install both.
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Restore
+        run: dotnet restore ComputerInventory.sln
+
+      - name: Build
+        run: dotnet build ComputerInventory.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test ComputerInventory.sln --configuration Release --no-build --verbosity normal

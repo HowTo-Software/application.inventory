@@ -1,0 +1,56 @@
+# Auto-normalize text files to LF in the repository, native EOL on checkout.
+* text=auto
+
+# ----- Windows-only scripts: must stay CRLF -----
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.sln   text eol=crlf
+
+# ----- Unix shell scripts: must stay LF -----
+*.sh    text eol=lf
+
+# ----- Source & config (LF) -----
+*.cs      text eol=lf diff=csharp
+*.csproj  text eol=lf
+*.props   text eol=lf
+*.targets text eol=lf
+*.json    text eol=lf
+*.js      text eol=lf
+*.ts      text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+*.razor   text eol=lf
+*.cshtml  text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.sql     text eol=lf
+*.xml     text eol=lf
+*.config  text eol=lf
+
+# ----- Binary files: never normalize, never diff -----
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.svg   binary
+*.pfx   binary
+*.p12   binary
+*.cer   binary
+*.crt   binary
+*.der   binary
+*.dll   binary
+*.exe   binary
+*.pdb   binary
+*.zip   binary
+*.tar   binary
+*.gz    binary
+*.7z    binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary

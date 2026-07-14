@@ -176,7 +176,7 @@ if (-not $SkipBuild) {
     $certsPath = Join-Path $ProjectRoot "thin-client\certs"
     $pfxPath = Join-Path $certsPath "MKSCodeSign.pfx"
     $cerPath = Join-Path $certsPath "MKSCodeSign.cer"
-    $CodeSignPassword = "MKS-CodeSign-2026!"
+    $CodeSignPassword = if ($env:PFX_PASSWORD) { $env:PFX_PASSWORD } else { "MKS-CodeSign-2026!" }
     $CertName = "MKS Computer Inventory Code Signing"
     
     # Auto-generate certificate if it doesn't exist
@@ -442,7 +442,7 @@ if (-not $SkipBuild) {
     $certsPath = Join-Path $ProjectRoot "thin-client\certs"
     $certPath = Join-Path $certsPath "MKSCodeSign.pfx"
     $cerPath = Join-Path $certsPath "MKSCodeSign.cer"
-    $CodeSignPassword = "MKS-CodeSign-2026!"
+    $CodeSignPassword = if ($env:PFX_PASSWORD) { $env:PFX_PASSWORD } else { "MKS-CodeSign-2026!" }
     $CertName = "MKS Computer Inventory Code Signing"
     
     if (-not (Test-Path $certPath)) {
@@ -922,7 +922,9 @@ $agentZipForUpload = Join-Path $ProjectRoot "src\ComputerInventory.Api\agent\Com
 if (Test-Path $agentZipForUpload) {
     try {
         # Login to get auth cookie
-        $loginBody = @{ Username = "admin"; Password = "Admin123!" } | ConvertTo-Json
+        $adminUser = if ($env:ADMIN_USERNAME) { $env:ADMIN_USERNAME } else { "admin" }
+        $adminPass = if ($env:ADMIN_PASSWORD) { $env:ADMIN_PASSWORD } else { "Admin123!" }
+        $loginBody = @{ Username = $adminUser; Password = $adminPass } | ConvertTo-Json
         $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
         $loginResult = Invoke-RestMethod -Uri "$packageApiBase/api/auth/login" -Method Post -Body $loginBody -ContentType "application/json" -WebSession $session -ErrorAction Stop
 
